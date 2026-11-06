@@ -55,8 +55,12 @@ async function getToken (env) {
 
 async function run (env = process.env) {
   const libDb = require('@adobe/aio-lib-db')
+  // aio-lib-db falls back to __OW_NAMESPACE, which is not set when aio runs this hook as a child process.
+  if (!env.AIO_RUNTIME_NAMESPACE) throw new Error('Missing in .env: AIO_RUNTIME_NAMESPACE')
   const token = await getToken(env)
-  const db = await libDb.init({ token, region: env.AIO_DB_REGION || 'emea' })
+  // aio-lib-db reads the region from app.config.yaml in the working directory (database.region);
+  // 'emea' here is only its fallback.
+  const db = await libDb.init({ token, region: 'emea', ow: { namespace: env.AIO_RUNTIME_NAMESPACE } })
   const client = await db.connect()
   try {
     return await ensureIndexes(client)

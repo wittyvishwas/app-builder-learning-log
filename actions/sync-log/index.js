@@ -6,12 +6,17 @@
  * Difference from the post: the post's snippet reads the failure with findOne({ sku, status: 'failed' }),
  * which returns *a* matching row, not necessarily the newest. Because the field is called lastFailure,
  * this version sorts by `at` descending and takes one, which is what the name promises. Same query, same result shape.
+ * It also returns 400 when sku or status is missing, which the post's snippet omits: an undefined field is dropped
+ * when the document and the filter are serialised, so the lookup would match any SKU's latest failure.
  */
 const { Core } = require('@adobe/aio-sdk')
 const libDb = require('@adobe/aio-lib-db')
 
 async function main (params) {
   const logger = Core.Logger('sync-log', { level: params.LOG_LEVEL || 'info' })
+  if (!params.sku || !params.status) {
+    return { statusCode: 400, body: { error: 'sku and status are required' } }
+  }
   let client
   try {
     const token = await Core.AuthClient.generateAccessToken(params)

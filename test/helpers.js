@@ -37,6 +37,15 @@ const OPS = {
   $gte: (v, x) => v !== undefined && v !== null && v >= x
 }
 // Mongo-style equality: null also matches a missing field.
+// Update operators the fake knows; anything else throws instead of being silently ignored.
+function applyUpdate (doc, update, inserting) {
+  for (const op of Object.keys(update)) {
+    if (op !== '$set' && op !== '$setOnInsert') throw new DbError(`fakeDb: unsupported update operator ${op}`)
+  }
+  Object.assign(doc, update.$set)
+  if (inserting) Object.assign(doc, update.$setOnInsert)
+  return doc
+}
 const same = (v, x) => (x === null ? v === null || v === undefined : v === x)
 const isOps = c => c && typeof c === 'object' && !Array.isArray(c) && Object.keys(c).some(k => k.startsWith('$'))
 
@@ -102,19 +111,19 @@ function fakeDb (data = new Map(), { failOn = [] } = {}) {
       updateOne: async (filter, update, { upsert = false } = {}) => {
         fail('updateOne')
         const doc = rows(name).find(r => matches(r, filter))
-        if (doc) { checkUnique(name, { ...doc, ...update.$set }, doc); Object.assign(doc, update.$set); return { matchedCount: 1, modifiedCount: 1, upsertedCount: 0 } }
+        if (doc) { checkUnique(name, applyUpdate({ ...doc }, update, false), doc); applyUpdate(doc, update, false); return { matchedCount: 1, modifiedCount: 1, upsertedCount: 0 } }
         if (!upsert) return { matchedCount: 0, modifiedCount: 0, upsertedCount: 0 }
         const plain = Object.fromEntries(Object.entries(filter).filter(([, v]) => !isOps(v)))
-        insert({ ...plain, ...update.$set })
+        insert(applyUpdate({ ...plain }, update, true))
         return { matchedCount: 0, modifiedCount: 0, upsertedCount: 1 }
       },
       updateMany: async (filter, update, { upsert = false } = {}) => {
         fail('updateMany')
         const docs = rows(name).filter(r => matches(r, filter))
-        docs.forEach(d => Object.assign(d, update.$set))
+        docs.forEach(d => applyUpdate(d, update, false))
         if (!docs.length && upsert) {
           const plain = Object.fromEntries(Object.entries(filter).filter(([, v]) => !isOps(v)))
-          insert({ ...plain, ...update.$set })
+          insert(applyUpdate({ ...plain }, update, true))
           return { matchedCount: 0, modifiedCount: 0, upsertedCount: 1 }
         }
         return { matchedCount: docs.length, modifiedCount: docs.length, upsertedCount: 0 }
@@ -129,6 +138,14 @@ function fakeDb (data = new Map(), { failOn = [] } = {}) {
       createIndex: async (spec, options = {}) => {
         fail('createIndex')
         const ixName = options.name || Object.entries(spec).map(([k, v]) => `${k}_${v}`).join('_')
+        if (options.unique) {
+          const seen = new Set()
+          for (const r of rows(name)) {
+            const k = JSON.stringify(Object.keys(spec).map(f => r[f]))
+            if (seen.has(k)) throw new DbError(`fakeDb: cannot create unique index ${ixName}, duplicates exist`)
+            seen.add(k)
+          }
+        }
         if (!idxOf(name).some(i => i.name === ixName)) idxOf(name).push({ name: ixName, key: spec, unique: !!options.unique })
         return ixName
       },

@@ -79,3 +79,17 @@ test('passes the action params (with the injected credentials) to generateAccess
   await main(params)
   expect(mockAuth).toHaveBeenCalledWith(params)
 })
+
+test.each([
+  [{ status: 'sent' }],
+  [{ sku: 'MUG' }],
+  [{ sku: '', status: 'failed' }]
+])('missing sku or status answers 400 and touches neither the token nor the database: %j', async (params) => {
+  mockDb = fakeDb()
+  mockAuth.mockClear()
+  const res = await main(params)
+  expect(res).toEqual({ statusCode: 400, body: { error: 'sku and status are required' } })
+  expect(mockAuth).not.toHaveBeenCalled()
+  expect(mockDb.calls.connect).toBe(0)
+  expect(mockDb.data.size).toBe(0)
+})

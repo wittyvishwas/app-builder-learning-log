@@ -57,7 +57,7 @@ aio rt action invoke order-sync/export-order-retry --result   # drain the retry 
 
 Ep 4 adds the document database for Runtime actions (`@adobe/aio-lib-db`) next to State and Files. Use State for a flag, lock or cursor with a time to live, Database Storage for records you query by field, and Files for large exports.
 
-**Provision.** `app.config.yaml` has `database: { auto-provision: true, region: emea }` under `runtimeManifest`. It is provisioned by `aio app deploy`, not by `aio app run` or `aio app dev`. Each workspace has its own database, so Stage and Production are separate. The region can't be changed later without deleting the database, and `actions/sync-log` passes the same region to `init` (`AIO_DB_REGION` can also set it). By hand: `aio app db provision --region emea`.
+**Provision.** `app.config.yaml` has `database: { auto-provision: true, region: emea }` under `runtimeManifest`. It is provisioned by `aio app deploy`, not by `aio app run` or `aio app dev`. Each workspace has its own database, so Stage and Production are separate. The region can't be changed later without deleting the database, and `actions/sync-log` passes the same region to `init`. aio-lib-db itself takes the region from `app.config.yaml` when that file is in the working directory. By hand: `aio app db provision --region emea`.
 
 **Auth.** The library needs an IMS token. Check three things, in order:
 
@@ -65,7 +65,7 @@ Ep 4 adds the document database for Runtime actions (`@adobe/aio-lib-db`) next t
 2. A new access token was generated after adding it (the OAuth server-to-server credential).
 3. The action has `include-ims-credentials: true`, as `order-sync/sync-log` does in `app.config.yaml`. The action then calls `Core.AuthClient.generateAccessToken(params)`.
 
-**Indexes.** `hooks.post-app-deploy` runs `scripts/post-deploy-db-setup.js` after every deploy. It reads the workspace's OAuth credentials from `.env` (`IMS_OAUTH_S2S_CLIENT_ID`, `_CLIENT_SECRET`, `_ORG_ID`, `_SCOPES`; see `.env.dist`), gets a token, and creates the indexes below. Indexes that exist are skipped, so a second deploy changes nothing. `ensureIndexes(client)` is the pure part and is what the tests call. The hook is written as `node scripts/post-deploy-db-setup.js`, so it doesn't depend on the file's execute bit.
+**Indexes.** `hooks.post-app-deploy` runs `scripts/post-deploy-db-setup.js` after every deploy. It reads the workspace's OAuth credentials from `.env` (`IMS_OAUTH_S2S_CLIENT_ID`, `_CLIENT_SECRET`, `_ORG_ID`, `_SCOPES`) plus `AIO_RUNTIME_NAMESPACE` (see `.env.dist`; `aio where` shows the namespace). The namespace is passed to `init` explicitly, because aio-lib-db otherwise reads `__OW_NAMESPACE`, which isn't set when aio runs a hook, gets a token, and creates the indexes below. Indexes that exist are skipped, so a second deploy changes nothing. `ensureIndexes(client)` is the pure part and is what the tests call. The hook is written as `node scripts/post-deploy-db-setup.js`, so it doesn't depend on the file's execute bit.
 
 **Look inside without code:**
 
@@ -79,7 +79,7 @@ aio app db document count export_runs
 aio app db stats
 ```
 
-**`sync-log` and the post.** The post reads the failure with `findOne({ sku, status: 'failed' })`. That returns a matching row, not necessarily the newest, so the repo sorts by `at` descending and takes one (`find(...).sort({ at: -1 }).limit(1)`), which is what the name `lastFailure` promises. Everything else is as in the post.
+**`sync-log` and the post.** The post reads the failure with `findOne({ sku, status: 'failed' })`. That returns a matching row, not necessarily the newest, so the repo sorts by `at` descending and takes one (`find(...).sort({ at: -1 }).limit(1)`), which is what the name `lastFailure` promises. The action also answers 400 when `sku` or `status` is missing, which the post's snippet omits: an `undefined` field is dropped from the stored row and from the query filter, so the lookup would return any SKU's latest failure. Everything else is as in the post.
 
 Try it once deployed: `aio rt action invoke order-sync/sync-log -p sku MUG -p status failed -p error "ERP 503" --result`. That has not been run against a real workspace yet.
 

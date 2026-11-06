@@ -50,24 +50,32 @@ const env = {
   IMS_OAUTH_S2S_CLIENT_ID: 'id',
   IMS_OAUTH_S2S_CLIENT_SECRET: 'secret',
   IMS_OAUTH_S2S_ORG_ID: 'org@AdobeOrg',
-  IMS_OAUTH_S2S_SCOPES: 'AdobeID, openid ,adobeio_api'
+  IMS_OAUTH_S2S_SCOPES: 'AdobeID, openid ,adobeio_api',
+  AIO_RUNTIME_NAMESPACE: '1234-demo-stage'
 }
 
 test('run() gets a token from the .env credentials, then closes the client', async () => {
   mockDb = fakeDb()
   mockAuth.mockClear()
-  const res = await run({ ...env, AIO_DB_REGION: 'apac' })
+  const res = await run(env)
   expect(mockAuth).toHaveBeenCalledWith({
     clientId: 'id', clientSecret: 'secret', orgId: 'org@AdobeOrg', scopes: ['AdobeID', 'openid', 'adobeio_api']
   })
-  expect(mockDb.calls.init).toEqual([{ token: 'tok-abc', region: 'apac' }])
+  expect(mockDb.calls.init).toEqual([{ token: 'tok-abc', region: 'emea', ow: { namespace: '1234-demo-stage' } }])
   expect(res.created).toHaveLength(4)
   expect(mockDb.calls.close).toBe(1)
 })
 
 test('run() names the missing .env variables and never touches the database', async () => {
   mockDb = fakeDb()
-  await expect(run({ IMS_OAUTH_S2S_CLIENT_ID: 'id' })).rejects.toThrow(/IMS_OAUTH_S2S_CLIENT_SECRET.*IMS_OAUTH_S2S_ORG_ID.*IMS_OAUTH_S2S_SCOPES/)
+  await expect(run({ IMS_OAUTH_S2S_CLIENT_ID: 'id', AIO_RUNTIME_NAMESPACE: 'ns' })).rejects.toThrow(/IMS_OAUTH_S2S_CLIENT_SECRET.*IMS_OAUTH_S2S_ORG_ID.*IMS_OAUTH_S2S_SCOPES/)
+  expect(mockDb.calls.init).toEqual([])
+})
+
+test('run() needs AIO_RUNTIME_NAMESPACE, because the hook has no __OW_NAMESPACE', async () => {
+  mockDb = fakeDb()
+  const { AIO_RUNTIME_NAMESPACE, ...rest } = env
+  await expect(run(rest)).rejects.toThrow('AIO_RUNTIME_NAMESPACE')
   expect(mockDb.calls.init).toEqual([])
 })
 
