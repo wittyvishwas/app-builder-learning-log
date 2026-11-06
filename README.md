@@ -14,7 +14,7 @@ git checkout ep3-cron-state-files
 | — | [Ep 2: start from a boilerplate](https://mageminion.com/app-builder-ep2-first-action/) | Ep 2 starts a real integration from Adobe's [commerce-integration-starter-kit](https://github.com/adobe/commerce-integration-starter-kit). Clone that kit; it isn't copied here |
 | `ep3-cron-state-files` | [Ep 3: cron, config and custom tables](https://mageminion.com/app-builder-ep3-cron-state-files/) | `stuck-orders`: an alarm trigger and rule every 15 minutes, a Commerce REST query for orders stuck in `pending_payment`, one alert per order (State with a 7-day TTL), a State lock against overlapping runs, and an optional daily CSV report in Files (`SAVE_REPORT: true`) |
 | `ep4-database-storage` | [Ep 4: Database Storage, when State isn't enough](https://mageminion.com/app-builder-ep4-database-storage/) | `sync-log`: an action that writes one row per export attempt to a collection and returns the latest failure for a SKU. The `database` block in `app.config.yaml` (auto-provisioned, region `emea`), `include-ims-credentials: true`, and a `post-app-deploy` hook that creates the indexes. `test/helpers.js` gains `fakeDb`, an in-memory aio-lib-db that later episodes reuse |
-| `ep5-log-forwarding` | [Ep 5: forward your action logs to New Relic](https://mageminion.com/app-builder-ep5-log-forwarding-new-relic/) | No new code: log forwarding is workspace configuration. The README section below lists the commands; the actions' log lines follow the post's rules |
+| `ep5-log-forwarding` | [Ep 5: forward your action logs to New Relic](https://mageminion.com/app-builder-ep5-log-forwarding-new-relic/) | No new code: log forwarding is workspace configuration. The README section below lists the commands |
 | `main` | Beyond Ep 1: order sync to an ERP | `export-order` grown into an event-driven integration (below), plus fixes to `stuck-orders` from a code review. Not in a published episode yet |
 | `day-NN` | Developer log | One tag per session, with its write-up in [`log/`](log/) |
 
@@ -124,7 +124,7 @@ Run an action that logs, then open **Logs** in New Relic and look for the new li
 aio rt action invoke ops/stuck-orders --result
 ```
 
-Use `LOG_LEVEL: info` and `debug` only while you investigate. Forwarding sends what you write, and an action's logs are cut off after 10 MB per activation.
+Keep `LOG_LEVEL: info` in the action inputs (already set in `app.config.yaml`), and use `debug` only while you investigate. Forwarding sends what you write, and an action's logs are cut off after 10 MB per activation.
 
 If nothing arrives, run `aio app config get log-forwarding errors`. It shows the most recent 10 forwarding errors, from up to 30 days back. The usual causes are the wrong regional base URI, a key that isn't an ingest license key, or a deploy that skipped the forwarding update.
 
@@ -134,7 +134,7 @@ Once logs leave the terminal, more people read them. Log one line per significan
 
 Each piece is marked by how far it has been proven:
 
-- **Unit-tested:** `npm test` (53 tests, run in CI on Node 20 and 24) runs the actions with Commerce, the ERP, the alert webhook, State, Files and Database Storage faked. The database fake (`fakeDb` in `test/helpers.js`) supports equality, `$ne`, `$in`, `$lt`/`$lte`/`$gt`/`$gte`, `find().sort().limit().toArray()`, `updateOne` with `$set` and upsert, unique indexes, and throws `DbError`; it proves our logic, not the real service. The State fake behaves like aio-lib-state 5.4 where it matters: `ifNotExists`, TTLs, and a paged `list()` that can return a key twice. That proves the mapping, retries, skipping a redelivered event, the retry queue, locks, time budget, dead-lettering without personal data, the stuck-order query, alert-then-remember and the report. It doesn't prove a deployment.
+- **Unit-tested:** `npm test` (60 tests, run in CI on Node 20 and 24) runs the actions with Commerce, the ERP, the alert webhook, State, Files and Database Storage faked. The database fake (`fakeDb` in `test/helpers.js`) supports equality, `$ne`, `$in`, `$lt`/`$lte`/`$gt`/`$gte`, `find().sort().limit().toArray()`, `updateOne` with `$set` and upsert, unique indexes, and throws `DbError`; it proves our logic, not the real service. The State fake behaves like aio-lib-state 5.4 where it matters: `ifNotExists`, TTLs, and a paged `list()` that can return a key twice. That proves the mapping, retries, skipping a redelivered event, the retry queue, locks, time budget, dead-lettering without personal data, the stuck-order query, alert-then-remember and the report. It doesn't prove a deployment.
 - **Verified on Stage:** nothing yet. The developer log marks code as verified once it has run in a real workspace.
 
 ## Run it
