@@ -71,7 +71,7 @@ aio app deploy
 aio rt action invoke ops/stuck-orders --result   # run the Ep 3 job once by hand
 ```
 
-Ep 3 needs a Commerce integration token with read access to Sales > Operations > Orders and an incoming-webhook URL for the alert. On PaaS, also allow OAuth access tokens as standalone bearer tokens; on Adobe Commerce as a Cloud Service (SaaS) that setting doesn't exist and the bearer must be an IMS token. `.env.dist` lists every variable.
+Ep 3 needs a Commerce integration token with read access to Sales > Operations > Orders and an incoming-webhook URL for the alert. On PaaS, also allow OAuth access tokens as standalone bearer tokens; on Adobe Commerce as a Cloud Service (ACCS), the SaaS edition, that setting doesn't exist and the bearer must be an IMS token. `.env.dist` lists every variable.
 
 ## Layout
 
