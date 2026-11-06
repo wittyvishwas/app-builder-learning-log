@@ -6,7 +6,7 @@ const path = require('path')
 
 const dir = path.join(__dirname, '..', 'mesh')
 const meshPath = path.join(dir, 'mesh.json')
-const schemaPath = path.join(dir, 'reviews-response-schema.json')
+const schemaPath = path.join(dir, 'reviews-schema.json')
 const load = file => JSON.parse(fs.readFileSync(file, 'utf8'))
 
 const reviewsSource = () => load(meshPath).meshConfig.sources.find(s => s.name === 'Reviews')
@@ -27,6 +27,11 @@ test('the reviews resolver joins on sku with keysArg skus', () => {
     r => r.targetTypeName === 'SimpleProduct' && r.targetFieldName === 'reviews'
   )
   expect(resolver).toMatchObject({ keyField: 'sku', keysArg: 'skus' })
+})
+
+test('the skus argument is sent as an array', () => {
+  const operation = reviewsSource().handler.JsonSchema.operations[0]
+  expect(operation.argTypeMap.skus.type).toBe('array')
 })
 
 test('the mesh cache is on', () => {

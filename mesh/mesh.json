@@ -2,7 +2,7 @@
   "meshConfig": {
     "sources": [
       { "name": "Commerce", "handler": { "graphql": { "endpoint": "https://shop.example.com/graphql" } } },
-      { "name": "Reviews", "handler": { "JsonSchema": { "baseUrl": "https://reviews.example.com", "operations": [ { "type": "Query", "field": "reviewsBySkus", "path": "/reviews?skus={args.skus}", "method": "GET", "responseSchema": "./reviews-response-schema.json" } ] } } }
+      { "name": "Reviews", "handler": { "JsonSchema": { "baseUrl": "https://reviews.example.com", "operations": [ { "type": "Query", "field": "reviewsBySkus", "path": "/reviews?skus={args.skus}", "method": "GET", "argTypeMap": { "skus": { "type": "array", "items": { "type": "string" } } }, "responseSchema": "./reviews-schema.json" } ] } } }
     ],
     "additionalTypeDefs": "extend type SimpleProduct {\n  reviews: [Review]\n}\n",
     "additionalResolvers": [ { "targetTypeName": "SimpleProduct", "targetFieldName": "reviews", "sourceName": "Reviews", "sourceTypeName": "Query", "sourceFieldName": "reviewsBySkus", "keyField": "sku", "keysArg": "skus" } ],

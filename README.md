@@ -191,23 +191,23 @@ aio api-mesh:status
 aio api-mesh:describe
 ```
 
-The `responseSchema` path is relative to `mesh.json`, so `reviews-response-schema.json` must stay next to it. The REST handler is spelled `JsonSchema`; `jsonSchema` is rejected.
+The `responseSchema` path is relative to `mesh.json`, so `reviews-schema.json` must stay next to it. The REST handler is spelled `JsonSchema`; `jsonSchema` is rejected. Only `SimpleProduct` gets `reviews` here; repeat the type extension and resolver for `ConfigurableProduct` and other product types you sell.
 
-The cache, as the post sets it out:
+The reviews endpoint must answer `/reviews?skus=A,B` with one list per SKU, in the order asked (an array of arrays); that's how the batched join maps results back to products. How the array is written into the query string is not verified on a real mesh yet.
 
 - **Off by default.** `"cache": true` in `responseConfig` turns it on. If you bring your own CDN, set `"cache": false` so responses aren't cached twice.
 - **The response is the unit.** Query-level caching isn't supported. A response gets one set of `Cache-Control` headers and is cached as a whole.
 - **Sources vote, the lowest wins.** Conflicting `max-age`, `s-maxage`, `stale-while-revalidate`, `stale-if-error` and similar resolve to the lowest value.
 - **`no-store` beats everything.** If any source says `no-store`, the whole response is `no-store`.
 - **Mesh config can't override a source.** A default `Cache-Control` in the mesh config only applies to sources that send none. Change the source to change its lifetime.
-- **GET requests are limited to 2,048 characters.**
+- **GET requests are limited to 2,048 characters.** A CDN of your own usually caches GET only.
 - **Purge after a mesh change:** `aio api-mesh:cache:purge -a`, or your CDN's purge.
 
 ## What's verified
 
 Each piece is marked by how far it has been proven:
 
-- **Unit-tested:** `npm test` (97 tests, run in CI on Node 20 and 24) runs the actions with Commerce, the ERP, the alert webhook, State, Files and Database Storage faked. The database fake (`fakeDb` in `test/helpers.js`) supports equality, `$ne`, `$in`, `$lt`/`$lte`/`$gt`/`$gte`, `find().sort().limit().toArray()`, `updateOne` with `$set` and upsert, unique indexes, and throws `DbError`; it proves our logic, not the real service. The State fake behaves like aio-lib-state 5.4 where it matters: `ifNotExists`, TTLs, and a paged `list()` that can return a key twice. That proves the mapping, retries, skipping a redelivered event, the retry queue, locks, time budget, dead-lettering without personal data, the stuck-order query, alert-then-remember, the report, and the webhook's signature check (real RSA keys, a tampered body, a base64 body, an escaped-newline PEM, a missing key answering 500). It doesn't prove a deployment.
+- **Unit-tested:** `npm test` (98 tests, run in CI on Node 20 and 24) runs the actions with Commerce, the ERP, the alert webhook, State, Files and Database Storage faked. The database fake (`fakeDb` in `test/helpers.js`) supports equality, `$ne`, `$in`, `$lt`/`$lte`/`$gt`/`$gte`, `find().sort().limit().toArray()`, `updateOne` with `$set` and upsert, unique indexes, and throws `DbError`; it proves our logic, not the real service. The State fake behaves like aio-lib-state 5.4 where it matters: `ifNotExists`, TTLs, and a paged `list()` that can return a key twice. That proves the mapping, retries, skipping a redelivered event, the retry queue, locks, time budget, dead-lettering without personal data, the stuck-order query, alert-then-remember, the report, and the webhook's signature check (real RSA keys, a tampered body, a base64 body, an escaped-newline PEM, a missing key answering 500). It doesn't prove a deployment.
 - **Verified on Stage:** nothing yet. The developer log marks code as verified once it has run in a real workspace.
 
 ## Run it
