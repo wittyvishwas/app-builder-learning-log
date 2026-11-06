@@ -4,10 +4,13 @@
  * pending_payment, and alerts once per order: State remembers what was alerted, and a
  * short-lived State key stops overlapping runs. With SAVE_REPORT=true it also keeps a CSV of
  * each run's newly alerted orders in Files (App Builder's blob storage), one file per day.
+ * Ep 9: each alerted order is also upserted into the stuck_alerts collection, which the Stuck orders
+ * admin page lists (needs include-ims-credentials: true in app.config.yaml).
  */
 const { Core } = require('@adobe/aio-sdk')
 const stateLib = require('@adobe/aio-lib-state')
 const filesLib = require('@adobe/aio-lib-files')
+const libDb = require('@adobe/aio-lib-db')
 
 const PAGE_SIZE = 50
 // State keys allow letters, digits, - _ and . only (aio-lib-state REGEX_PATTERN_STORE_KEY).
@@ -75,6 +78,30 @@ async function withLock (state, name, seconds, fn) {
   try { return await fn() } finally { await state.delete(key) }
 }
 
+// Ep 9: one stuck_alerts row per order. $setOnInsert keeps `handled` and `created_at` (the order's own
+// creation time) from the first alert: a re-alert (State's 7-day TTL ran out and the order is still stuck)
+// refreshes `status` and `at` but doesn't reopen a row the merchant already marked handled.
+async function saveAlerts (params, orders) {
+  let client
+  try {
+    const token = await Core.AuthClient.generateAccessToken(params)
+    // The region must match the provisioned one (app.config.yaml: database.region).
+    const db = await libDb.init({ token: token.access_token, region: 'emea' })
+    client = await db.connect()
+    const alerts = await client.collection('stuck_alerts')
+    const at = new Date().toISOString()
+    for (const o of orders) {
+      await alerts.updateOne(
+        { order: String(o.increment_id) },
+        { $set: { status: 'pending_payment', at }, $setOnInsert: { created_at: o.created_at, handled: false } },
+        { upsert: true }
+      )
+    }
+  } finally {
+    if (client) await client.close()
+  }
+}
+
 function toCsv (orders) {
   const cell = v => `"${String(v).replace(/"/g, '""')}"`
   const rows = orders.map(o => [o.increment_id, o.grand_total, o.created_at].map(cell).join(','))
@@ -102,6 +129,14 @@ async function main (params) {
         await sendAlert(params.ALERT_WEBHOOK_URL, fresh)
         await markAlerted(state, fresh)
       }
+      // The alerts table feeds the admin page: like the report, a database failure is logged and never blocks or repeats the alert.
+      if (fresh.length) {
+        try {
+          await saveAlerts(params, fresh)
+        } catch (e) {
+          logger.warn(`alerts not saved to the database: ${e.message}`)
+        }
+      }
       // The report is a record, not the alert: a Files failure is logged and never blocks or repeats the alert.
       if (fresh.length && String(params.SAVE_REPORT) === 'true') {
         try {
@@ -114,7 +149,7 @@ async function main (params) {
       return { statusCode: 200, body: { alerted: fresh.length } }
     })
   } catch (e) {
-    logger.error(e)
+    logger.error(e.message)
     return { statusCode: 500, body: { error: e.message } }
   }
 }

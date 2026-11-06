@@ -94,6 +94,8 @@ application:
               STUCK_AFTER_MINUTES: 30
               SAVE_REPORT: false
             annotations:
+              # Ep 9: the job also writes each alert to the stuck_alerts collection, which needs the workspace's OAuth credentials.
+              include-ims-credentials: true
               final: true
         triggers:
           every15Minutes:
@@ -120,3 +122,8 @@ application:
             annotations:
               raw-http: true
               final: true
+# Ep 9: Admin UI SDK v1 extension (the page in the Commerce admin). Layout copied from Adobe's sample
+# adobe-commerce-samples/admin-ui-sdk/v1/menu/custom-menu. Version 2 would be commerce/backend-ui/2.
+extensions:
+  commerce/backend-ui/1:
+    $include: src/commerce-backend-ui-1/ext.config.yaml

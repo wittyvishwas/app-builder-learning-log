@@ -20,9 +20,16 @@ jest.mock('@adobe/aio-lib-files', () => ({
     }
   })
 }))
+const mockLogs = { warn: [] }
 jest.mock('@adobe/aio-sdk', () => ({
-  Core: { Logger: () => ({ info: () => {}, warn: () => {}, error: () => {}, debug: () => {} }) }
+  Core: {
+    Logger: () => ({ info: () => {}, warn: m => mockLogs.warn.push(m), error: () => {}, debug: () => {} }),
+    AuthClient: { generateAccessToken: async () => ({ access_token: 'tok-123' }) }
+  }
 }))
+let mockDb
+jest.mock('@adobe/aio-lib-db', () => ({ init: (...a) => mockDb.init(...a) }))
+const { fakeDb } = require('./helpers')
 
 const { main, toCsv } = require('../actions/stuck-orders')
 
@@ -49,7 +56,7 @@ function mockFetch (items, { status = 200, webhookStatus = 200 } = {}) {
 const alertCalls = () => global.fetch.mock.calls.filter(([u]) => u === params.ALERT_WEBHOOK_URL)
 const stuckKeys = () => [...mockStore.keys()].filter(k => k.startsWith('stuck-')).sort()
 
-beforeEach(() => { mockStore.clear(); mockTtls.clear(); mockFiles.clear(); mockFilesFail.on = false })
+beforeEach(() => { mockDb = fakeDb(); mockLogs.warn = []; mockStore.clear(); mockTtls.clear(); mockFiles.clear(); mockFilesFail.on = false })
 
 test('asks Commerce for pending_payment orders older than the cut-off, oldest first, with a bearer token', async () => {
   mockFetch([])
@@ -157,4 +164,53 @@ test('a Files failure is logged and does not block or repeat the alert', async (
 test('CSV cells are quoted and embedded quotes doubled', () => {
   expect(toCsv([{ increment_id: 'A"1', grand_total: 5, created_at: 'x' }]))
     .toBe('increment_id,grand_total,created_at\n"A""1","5","x"\n')
+})
+
+describe('Ep 9: stuck_alerts rows for the admin page', () => {
+  test('writes one open alert per alerted order, after the alert went out', async () => {
+    mockFetch(orders)
+    const res = await main(params)
+    expect(res.body).toEqual({ alerted: 2 })
+    const rows = mockDb.data.get('stuck_alerts')
+    expect(rows.map(r => r.order).sort()).toEqual(['000000101', '000000102'])
+    expect(rows[0]).toMatchObject({ status: 'pending_payment', created_at: '2027-01-07 08:00:00', handled: false })
+    expect(new Date(rows[0].at).toISOString()).toBe(rows[0].at)
+    expect(mockDb.calls.init).toEqual([{ token: 'tok-123', region: 'emea' }])
+    expect(mockDb.calls.close).toBe(1)
+  })
+
+  test('writes nothing when no order is new, or when the alert webhook fails', async () => {
+    mockFetch([])
+    await main(params)
+    mockFetch(orders, { webhookStatus: 500 })
+    expect((await main(params)).statusCode).toBe(500)
+    expect(mockDb.data.get('stuck_alerts')).toBeUndefined()
+    expect(mockDb.calls.connect).toBe(0)
+  })
+
+  test('a re-alert refreshes the row but does not reopen one that was handled', async () => {
+    mockDb = fakeDb(new Map([['stuck_alerts', [
+      { order: '000000101', status: 'pending_payment', created_at: '2027-01-07 08:00:00', at: '2027-01-01T00:00:00.000Z', handled: true, handledAt: '2027-01-02T00:00:00.000Z' }
+    ]]]))
+    mockFetch([orders[0]])
+    await main(params)
+    const rows = mockDb.data.get('stuck_alerts')
+    expect(rows).toHaveLength(1)
+    expect(rows[0]).toMatchObject({ handled: true, handledAt: '2027-01-02T00:00:00.000Z' })
+    expect(rows[0].at).not.toBe('2027-01-01T00:00:00.000Z')
+  })
+
+  test.each(['connect', 'updateOne', 'close'])('a database failure (%s) is logged by message and never blocks or repeats the alert', async op => {
+    mockDb = fakeDb(new Map(), { failOn: [op] })
+    mockFetch(orders)
+    const res = await main(params)
+    expect(res).toEqual({ statusCode: 200, body: { alerted: 2 } })
+    expect(alertCalls()).toHaveLength(1)
+    expect(stuckKeys()).toEqual(['stuck-000000101', 'stuck-000000102'])
+    expect(mockLogs.warn.join('\n')).toContain(`fakeDb: ${op} failed`)
+    // Next run: already remembered, so no second alert.
+    mockFetch(orders)
+    await main(params)
+    expect(alertCalls()).toHaveLength(0)
+  })
 })

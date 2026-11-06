@@ -18,6 +18,7 @@ git checkout ep3-cron-state-files
 | `ep6-commerce-events` | [Ep 6: replace an observer with a Commerce event](https://mageminion.com/app-builder-ep6-commerce-events/) | `events/order-placed`: handles `observer.sales_order_place_after` from I/O Events with only `increment_id` and `grand_total`, skips an order already in `export_runs` as `sent`, sends it to the ERP (Idempotency-Key = order number), records the `sent` row, and answers 500 on failure so I/O Events retries |
 | `ep7-webhooks` | [Ep 7: replace a plugin with a webhook](https://mageminion.com/app-builder-ep7-webhooks/) | `webhooks/cart-check`: a web action with `raw-http: true` that verifies Commerce's `x-adobe-commerce-webhook-signature` over the base64 body, then answers `success`, or `exception` with a message for a SKU in `RESTRICTED_SKUS`; a missing or invalid signature is refused. Plus `commerce/webhooks.xml` |
 | `ep8-api-mesh` | [Ep 8: API Mesh, one endpoint, and the truth about its cache](https://mageminion.com/app-builder-ep8-api-mesh/) | `mesh/mesh.json`: Commerce GraphQL and a REST reviews API behind one endpoint, joined with `keyField`/`keysArg`, mesh cache on. Endpoints are placeholders |
+| `ep9-admin-ui-sdk` | [Ep 9: a page in the Commerce admin with the Admin UI SDK](https://mageminion.com/app-builder-ep9-admin-ui-sdk/) | An Admin UI SDK v1 extension (`src/commerce-backend-ui-1/`, laid out like Adobe's custom-menu sample): a **Stuck orders** menu item and a React Spectrum page listing open alerts, with `list-alerts` and `mark-handled` actions behind `require-adobe-auth`. `stuck-orders` now also writes each alert to the `stuck_alerts` collection |
 | `main` | Beyond Ep 1: order sync to an ERP | `export-order` grown into an event-driven integration (below), plus fixes to `stuck-orders` from a code review. Not in a published episode yet |
 | `day-NN` | Developer log | One tag per session, with its write-up in [`log/`](log/) |
 
@@ -95,7 +96,7 @@ Keep IDs, statuses and timestamps; look customer and order details up in Commerc
 |---|---|---|---|
 | `export_runs` | Ep 4: `sync-log` | `sku`, `status`, `error` (or `null`), `at` (ISO time) | `{ sku: 1, at: -1 }`, `{ order: 1, status: 1 }` |
 | `export_runs` | Ep 6 and Ep 10: order rows | `order`, `status` (`sent`, `retry` or `dead`), `at`; optional `attempts`, `nextAt`, `lastError`; `mapped` on `retry` rows only (no customer or address blocks); lines and totals on `dead` rows only (no customer). The Ep 6 check is `findOne({ order, status: 'sent' })` | same collection, same indexes |
-| `stuck_alerts` | Ep 9 | `order`, `status`, `created_at`, `at`, `handled` (boolean), `handledAt` (optional) | unique `{ order: 1 }`, `{ handled: 1, at: -1 }` |
+| `stuck_alerts` | Ep 9: `stuck-orders` writes, `mark-handled` updates | `order`, `status`, `created_at` (the order's own creation time), `at` (last alert, ISO time), `handled` (boolean), `handledAt` (optional) | unique `{ order: 1 }`, `{ handled: 1, at: -1 }` |
 
 Ep 6 writes the `sent` order rows (`events/order-placed`). The Ep 10 rows (`retry`, `dead`) are planned and not in the code yet; the indexes for them are already created by the hook.
 
@@ -203,11 +204,29 @@ The reviews endpoint must answer `/reviews?skus=A,B` with one list per SKU, in t
 - **GET requests are limited to 2,048 characters.** A CDN of your own usually caches GET only.
 - **Purge after a mesh change:** `aio api-mesh:cache:purge -a`, or your CDN's purge.
 
+## Admin UI SDK (Ep 9)
+
+`src/commerce-backend-ui-1/` is an Admin UI SDK **v1** extension (`extensions: commerce/backend-ui/1` in `app.config.yaml`). Its layout and registration fields are copied from Adobe's [custom-menu sample](https://github.com/adobe/adobe-commerce-samples/tree/main/admin-ui-sdk/v1/menu/custom-menu): a `registration` web action returns `menuItems` (`id`, `title`, `parent`, `sortOrder`, plus the sample's `Apps` section with `isSection: true`) and `page.title`; `web-src/` is the sample's bootstrap (`exc-runtime`, `register`, `attach` for the IMS token, `callAction`) with one React Spectrum table. The menu item is **Stuck orders** under the sample's **Apps** section; no new section.
+
+- `list-alerts`: `find({ handled: { $ne: true } }).sort({ at: -1 }).limit(50)` on `stuck_alerts`, as in the post.
+- `mark-handled`: needs `order` (400 without it, 404 for an unknown order), then `updateOne` setting `handled: true` and `handledAt`.
+- `stuck-orders` (main only; the tags `ep1` and `ep3` don't move) upserts a `stuck_alerts` row per alerted order after the alert went out and was remembered. `handled` and `created_at` are set on insert only, so a re-alert (State's 7-day TTL expired, order still stuck) refreshes `status` and `at` but doesn't reopen a handled row. A database failure is logged by message and never blocks or repeats the alert, like the Files report. It needs `include-ims-credentials: true`, now set in `app.config.yaml`.
+
+**Enable it in the admin.** Stores > Settings > Configuration > Adobe Services > Admin UI SDK: set **Enable Admin UI SDK** to Yes, select the app under **Configure eligible extensions**, and after every `aio app deploy` click **Refresh selected extensions**. **Database logging** writes the SDK's logs to System > Admin UI SDK > Admin UI SDK Logs.
+
+**Local testing.** `aio app dev` with **Enable local testing** and **Local Server Base URL** in the same section works on PaaS and with v1 only; on Commerce as a Cloud Service local testing must stay off. `web-src/src/config.json` (action URLs) is generated by `aio app build` and `aio app dev` and is git-ignored.
+
+**"Admin-only" means `require-adobe-auth: true`.** Both data actions are web actions that accept only a valid Adobe token for the org, and the page sends the signed-in admin's token. v1 has no per-action ACL: any user of the org with a token can call them, so don't put anything beyond "list and acknowledge alerts" behind them. ACL-protected menu items and actions are a v2 feature.
+
+**Version 2.** `commerce/backend-ui/2` declares menus (and grid columns, mass actions, order-view buttons) in an `adminUi` block of the app's Commerce configuration instead of a registration action. This repo uses v1 because that's what Adobe's samples show; the two aren't compatible, so pick one per app. Not built here.
+
+**What's verified.** The registration shape, `list-alerts`, `mark-handled` and the `stuck_alerts` writes are unit-tested with the database faked. The React page is **not** covered by `npm test` or CI (it needs the aio CLI, a bundler and a Commerce admin); it has to be checked with `aio app dev`, and has not been. Its dependencies (React, React Spectrum, UIX, exc-app) are `devDependencies` only: the actions don't need them.
+
 ## What's verified
 
 Each piece is marked by how far it has been proven:
 
-- **Unit-tested:** `npm test` (98 tests, run in CI on Node 20 and 24) runs the actions with Commerce, the ERP, the alert webhook, State, Files and Database Storage faked. The database fake (`fakeDb` in `test/helpers.js`) supports equality, `$ne`, `$in`, `$lt`/`$lte`/`$gt`/`$gte`, `find().sort().limit().toArray()`, `updateOne` with `$set` and upsert, unique indexes, and throws `DbError`; it proves our logic, not the real service. The State fake behaves like aio-lib-state 5.4 where it matters: `ifNotExists`, TTLs, and a paged `list()` that can return a key twice. That proves the mapping, retries, skipping a redelivered event, the retry queue, locks, time budget, dead-lettering without personal data, the stuck-order query, alert-then-remember, the report, and the webhook's signature check (real RSA keys, a tampered body, a base64 body, an escaped-newline PEM, a missing key answering 500). It doesn't prove a deployment.
+- **Unit-tested:** `npm test` (123 tests, run in CI on Node 20 and 24) runs the actions with Commerce, the ERP, the alert webhook, State, Files and Database Storage faked. The database fake (`fakeDb` in `test/helpers.js`) supports equality, `$ne`, `$in`, `$lt`/`$lte`/`$gt`/`$gte`, `find().sort().limit().toArray()`, `updateOne` with `$set` and upsert, unique indexes, and throws `DbError`; it proves our logic, not the real service. The State fake behaves like aio-lib-state 5.4 where it matters: `ifNotExists`, TTLs, and a paged `list()` that can return a key twice. That proves the mapping, retries, skipping a redelivered event, the retry queue, locks, time budget, dead-lettering without personal data, the stuck-order query, alert-then-remember, the report, and the webhook's signature check (real RSA keys, a tampered body, a base64 body, an escaped-newline PEM, a missing key answering 500). It doesn't prove a deployment.
 - **Verified on Stage:** nothing yet. The developer log marks code as verified once it has run in a real workspace.
 
 ## Run it
@@ -236,6 +255,7 @@ actions/
   sync-log/index.js             # Ep 4: Database Storage
   order-placed/index.js         # Ep 6: Commerce event handler, idempotent through export_runs
   cart-check/index.js           # Ep 7: webhook that verifies Commerce's signature and blocks restricted SKUs
+src/commerce-backend-ui-1/      # Ep 9: Admin UI SDK v1 extension (ext.config.yaml, actions/registration|list-alerts|mark-handled, web-src/)
 commerce/
   webhooks.xml                  # Ep 7: webhook declaration (PaaS module etc/; SaaS: System > Webhooks)
 mesh/                           # Ep 8: mesh config and the reviews response schema

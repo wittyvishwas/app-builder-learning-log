@@ -1,0 +1,47 @@
+# Ep 9: layout and registration copied from Adobe's v1 custom-menu sample
+# (adobe-commerce-samples/admin-ui-sdk/v1/menu/custom-menu). Both data actions are web actions that need
+# the signed-in admin's Adobe identity (require-adobe-auth). v1 has no per-action ACL, so that is the only gate.
+operations:
+  view:
+    - type: web
+      impl: index.html
+actions: actions
+web: web-src
+runtimeManifest:
+  packages:
+    admin-ui-sdk:
+      license: Apache-2.0
+      actions:
+        registration:
+          function: actions/registration/index.js
+          web: 'yes'
+          runtime: 'nodejs:20'
+          inputs:
+            LOG_LEVEL: info
+          annotations:
+            require-adobe-auth: true
+            final: true
+    StuckOrders:
+      license: Apache-2.0
+      actions:
+        list-alerts:
+          function: actions/list-alerts/index.js
+          web: 'yes'
+          runtime: 'nodejs:20'
+          inputs:
+            LOG_LEVEL: info
+          annotations:
+            require-adobe-auth: true
+            # Gives aio-lib-db the workspace's OAuth credentials (same as sync-log).
+            include-ims-credentials: true
+            final: true
+        mark-handled:
+          function: actions/mark-handled/index.js
+          web: 'yes'
+          runtime: 'nodejs:20'
+          inputs:
+            LOG_LEVEL: info
+          annotations:
+            require-adobe-auth: true
+            include-ims-credentials: true
+            final: true
