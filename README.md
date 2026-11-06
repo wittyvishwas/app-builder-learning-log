@@ -15,6 +15,7 @@ git checkout ep3-cron-state-files
 | `ep3-cron-state-files` | [Ep 3: cron, config and custom tables](https://mageminion.com/app-builder-ep3-cron-state-files/) | `stuck-orders`: an alarm trigger and rule every 15 minutes, a Commerce REST query for orders stuck in `pending_payment`, one alert per order (State with a 7-day TTL), a State lock against overlapping runs, and an optional daily CSV report in Files (`SAVE_REPORT: true`) |
 | `ep4-database-storage` | [Ep 4: Database Storage, when State isn't enough](https://mageminion.com/app-builder-ep4-database-storage/) | `sync-log`: an action that writes one row per export attempt to a collection and returns the latest failure for a SKU. The `database` block in `app.config.yaml` (auto-provisioned, region `emea`), `include-ims-credentials: true`, and a `post-app-deploy` hook that creates the indexes. `test/helpers.js` gains `fakeDb`, an in-memory aio-lib-db that later episodes reuse |
 | `ep5-log-forwarding` | [Ep 5: forward your action logs to New Relic](https://mageminion.com/app-builder-ep5-log-forwarding-new-relic/) | No new code: log forwarding is workspace configuration. The README section below lists the commands |
+| `ep6-commerce-events` | [Ep 6: replace an observer with a Commerce event](https://mageminion.com/app-builder-ep6-commerce-events/) | `events/order-placed`: handles `observer.sales_order_place_after` from I/O Events with only `increment_id` and `grand_total`, skips an order already in `export_runs` as `sent`, sends it to the ERP (Idempotency-Key = order number), records the `sent` row, and answers 500 on failure so I/O Events retries |
 | `main` | Beyond Ep 1: order sync to an ERP | `export-order` grown into an event-driven integration (below), plus fixes to `stuck-orders` from a code review. Not in a published episode yet |
 | `day-NN` | Developer log | One tag per session, with its write-up in [`log/`](log/) |
 
@@ -94,7 +95,26 @@ Keep IDs, statuses and timestamps; look customer and order details up in Commerc
 | `export_runs` | Ep 6 and Ep 10: order rows | `order`, `status` (`sent`, `retry` or `dead`), `at`; optional `attempts`, `nextAt`, `lastError`; `mapped` on `retry` rows only (no customer or address blocks); lines and totals on `dead` rows only (no customer). The Ep 6 check is `findOne({ order, status: 'sent' })` | same collection, same indexes |
 | `stuck_alerts` | Ep 9 | `order`, `status`, `created_at`, `at`, `handled` (boolean), `handledAt` (optional) | unique `{ order: 1 }`, `{ handled: 1, at: -1 }` |
 
-The Ep 6 to Ep 10 rows are planned and not in the code yet; the indexes for them are already created by the hook.
+Ep 6 writes the `sent` order rows (`events/order-placed`). The Ep 10 rows (`retry`, `dead`) are planned and not in the code yet; the indexes for them are already created by the hook.
+
+## Commerce events (Ep 6)
+
+`events/order-placed` is the handler from the post: Adobe I/O Events delivers `observer.sales_order_place_after`, and the action sends the order to the ERP once. It reads `params.data?.value ?? params.data`, answers 400 (logging only the data keys) when there's no `increment_id`, skips an order that already has a `{ order, status: 'sent' }` row in `export_runs`, sends it with `sendToErp` (the post leaves that out; here it is in `actions/order-placed/index.js` and reuses `actions/order-sync/erp.js`, so the order number is the `Idempotency-Key` and a 409 counts as success), then inserts the `sent` row. Any error answers 500, so I/O Events delivers the event again. The database client is closed in `finally`.
+
+```bash
+# Commerce (PaaS): the event provider, then the subscription with only the fields the handler needs
+bin/magento events:create-event-provider --label "Shop Stage" --description "Commerce events from Stage"
+bin/magento events:subscribe observer.sales_order_place_after \
+  --fields=increment_id --fields=grand_total --priority
+bin/magento events:list
+aio app deploy
+```
+
+Then, in Developer Console, in the workspace: **Add service > Event > Commerce events**, pick the provider, tick `observer.sales_order_place_after`, and choose the runtime action `events/order-placed` as the consumer.
+
+**Duplicates.** Commerce retries sending events to Adobe I/O, up to 7 times by default, so the same order can arrive more than once; the `export_runs` check is what makes that safe. Two deliveries that race can both pass the check and both POST; the ERP's `Idempotency-Key` makes the second a 409, which counts as success, so the ERP stays the guarantee.
+
+**Register only one.** `events/order-placed` and `order-sync/export-order` both consume the same event. `order-sync/export-order` is the full version, built in Ep 10 (retry queue, dead letters, mapped order), and `order-placed` is the minimal one this episode teaches. Register one of them as the consumer, never both, or every order is handled twice. Not verified on a real workspace yet.
 
 ## Log forwarding to New Relic (Ep 5)
 
@@ -134,7 +154,7 @@ Once logs leave the terminal, more people read them. Log one line per significan
 
 Each piece is marked by how far it has been proven:
 
-- **Unit-tested:** `npm test` (60 tests, run in CI on Node 20 and 24) runs the actions with Commerce, the ERP, the alert webhook, State, Files and Database Storage faked. The database fake (`fakeDb` in `test/helpers.js`) supports equality, `$ne`, `$in`, `$lt`/`$lte`/`$gt`/`$gte`, `find().sort().limit().toArray()`, `updateOne` with `$set` and upsert, unique indexes, and throws `DbError`; it proves our logic, not the real service. The State fake behaves like aio-lib-state 5.4 where it matters: `ifNotExists`, TTLs, and a paged `list()` that can return a key twice. That proves the mapping, retries, skipping a redelivered event, the retry queue, locks, time budget, dead-lettering without personal data, the stuck-order query, alert-then-remember and the report. It doesn't prove a deployment.
+- **Unit-tested:** `npm test` (73 tests, run in CI on Node 20 and 24) runs the actions with Commerce, the ERP, the alert webhook, State, Files and Database Storage faked. The database fake (`fakeDb` in `test/helpers.js`) supports equality, `$ne`, `$in`, `$lt`/`$lte`/`$gt`/`$gte`, `find().sort().limit().toArray()`, `updateOne` with `$set` and upsert, unique indexes, and throws `DbError`; it proves our logic, not the real service. The State fake behaves like aio-lib-state 5.4 where it matters: `ifNotExists`, TTLs, and a paged `list()` that can return a key twice. That proves the mapping, retries, skipping a redelivered event, the retry queue, locks, time budget, dead-lettering without personal data, the stuck-order query, alert-then-remember and the report. It doesn't prove a deployment.
 - **Verified on Stage:** nothing yet. The developer log marks code as verified once it has run in a real workspace.
 
 ## Run it
@@ -161,6 +181,7 @@ actions/
   order-sync/                   # mapper, ERP client, State bookkeeping, export logic
   stuck-orders/index.js         # Ep 3
   sync-log/index.js             # Ep 4: Database Storage
+  order-placed/index.js         # Ep 6: Commerce event handler, idempotent through export_runs
 scripts/
   post-deploy-db-setup.js       # Ep 4: post-app-deploy hook, creates the indexes
 app.config.yaml                 # actions, two alarm triggers and their rules, database, post-deploy hook

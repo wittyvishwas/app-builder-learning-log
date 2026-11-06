@@ -63,6 +63,23 @@ application:
           orderSyncRetrySchedule:
             trigger: every10Minutes
             action: export-order-retry
+      # Ep 6: the order-placed handler from the post, invoked by Adobe I/O Events (not a web action).
+      # order-sync/export-order is the full version (Ep 10): register only one of the two for the event.
+      events:
+        license: Apache-2.0
+        actions:
+          order-placed:
+            function: actions/order-placed/index.js
+            runtime: nodejs:20
+            web: 'no'
+            inputs:
+              LOG_LEVEL: info
+              ERP_API_URL: $ERP_API_URL
+              ERP_API_KEY: $ERP_API_KEY
+            annotations:
+              # Receives the workspace's OAuth credentials, which aio-lib-db needs for its token.
+              include-ims-credentials: true
+              final: true
       # Ep 3: a scheduled job. Not a web action: nothing outside should call it.
       ops:
         actions:
