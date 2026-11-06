@@ -41,6 +41,10 @@ function applyUpdate (doc, update, inserting) {
   for (const op of Object.keys(update)) {
     if (op !== '$set' && op !== '$setOnInsert') throw new DbError(`fakeDb: unsupported update operator ${op}`)
   }
+  // Mongo rejects an update that touches the same field in $set and $setOnInsert.
+  for (const k of Object.keys(update.$set || {})) {
+    if (k in (update.$setOnInsert || {})) throw new DbError(`fakeDb: conflicting update operators on ${k}`)
+  }
   Object.assign(doc, update.$set)
   if (inserting) Object.assign(doc, update.$setOnInsert)
   return doc

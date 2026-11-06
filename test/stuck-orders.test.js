@@ -167,8 +167,19 @@ test('CSV cells are quoted and embedded quotes doubled', () => {
 })
 
 describe('Ep 9: stuck_alerts rows for the admin page', () => {
-  test('writes one open alert per alerted order, after the alert went out', async () => {
+  test('writes one open alert per alerted order, after the alert went out and the order was remembered', async () => {
     mockFetch(orders)
+    const real = mockDb.client.collection
+    mockDb.client.collection = name => {
+      const c = real(name)
+      const updateOne = c.updateOne
+      c.updateOne = async (filter, ...rest) => {
+        if (!mockStore.has(`stuck-${filter.order}`)) throw new Error(`alert row written before ${filter.order} was remembered`)
+        if (alertCalls().length !== 1) throw new Error('alert row written before the alert went out')
+        return updateOne(filter, ...rest)
+      }
+      return c
+    }
     const res = await main(params)
     expect(res.body).toEqual({ alerted: 2 })
     const rows = mockDb.data.get('stuck_alerts')

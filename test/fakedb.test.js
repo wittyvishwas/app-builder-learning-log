@@ -20,3 +20,9 @@ test('a unique index over existing duplicates throws', async () => {
   await expect(c.createIndex({ order: 1 }, { unique: true })).rejects.toThrow('duplicates exist')
   await expect(c.createIndex({ order: 1 })).resolves.toBe('order_1')
 })
+
+test('updateOne rejects the same field in $set and $setOnInsert, like Mongo', async () => {
+  const db = fakeDb()
+  const c = db.client.collection('c')
+  await expect(c.updateOne({ a: 1 }, { $set: { x: 1 }, $setOnInsert: { x: 2 } }, { upsert: true })).rejects.toThrow(/conflicting/)
+})

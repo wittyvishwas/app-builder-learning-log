@@ -24,7 +24,7 @@ async function main (params) {
     return { statusCode: 200, body: { order: params.order, handled: true } }
   } catch (e) {
     logger.error(e.message)
-    return { statusCode: 500, body: { error: e.name === 'DbError' ? 'database error' : e.message } }
+    return { statusCode: 500, body: { error: e.name === 'DbError' ? 'database error' : 'internal error' } }
   } finally {
     if (client) await client.close()
   }
