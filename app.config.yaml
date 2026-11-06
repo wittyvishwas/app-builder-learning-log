@@ -104,3 +104,19 @@ application:
           stuckOrdersSchedule:
             trigger: every15Minutes
             action: stuck-orders
+      # Ep 7: a Commerce webhook endpoint (observer.checkout_cart_product_add_before). Commerce calls it, so it is a
+      # web action; raw-http gives the action the exact signed bytes. The signature is checked in the code.
+      webhooks:
+        license: Apache-2.0
+        actions:
+          cart-check:
+            function: actions/cart-check/index.js
+            runtime: nodejs:20
+            web: 'yes'
+            inputs:
+              LOG_LEVEL: info
+              PUBLIC_KEY: $PUBLIC_KEY
+              RESTRICTED_SKUS: $RESTRICTED_SKUS
+            annotations:
+              raw-http: true
+              final: true

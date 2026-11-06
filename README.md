@@ -16,6 +16,7 @@ git checkout ep3-cron-state-files
 | `ep4-database-storage` | [Ep 4: Database Storage, when State isn't enough](https://mageminion.com/app-builder-ep4-database-storage/) | `sync-log`: an action that writes one row per export attempt to a collection and returns the latest failure for a SKU. The `database` block in `app.config.yaml` (auto-provisioned, region `emea`), `include-ims-credentials: true`, and a `post-app-deploy` hook that creates the indexes. `test/helpers.js` gains `fakeDb`, an in-memory aio-lib-db that later episodes reuse |
 | `ep5-log-forwarding` | [Ep 5: forward your action logs to New Relic](https://mageminion.com/app-builder-ep5-log-forwarding-new-relic/) | No new code: log forwarding is workspace configuration. The README section below lists the commands |
 | `ep6-commerce-events` | [Ep 6: replace an observer with a Commerce event](https://mageminion.com/app-builder-ep6-commerce-events/) | `events/order-placed`: handles `observer.sales_order_place_after` from I/O Events with only `increment_id` and `grand_total`, skips an order already in `export_runs` as `sent`, sends it to the ERP (Idempotency-Key = order number), records the `sent` row, and answers 500 on failure so I/O Events retries |
+| `ep7-webhooks` | [Ep 7: replace a plugin with a webhook](https://mageminion.com/app-builder-ep7-webhooks/) | `webhooks/cart-check`: a web action with `raw-http: true` that verifies Commerce's `x-adobe-commerce-webhook-signature` over the exact raw body, then answers `success`, or `exception` with a message for a SKU in `RESTRICTED_SKUS`; a missing or invalid signature is refused. Plus `commerce/webhooks.xml` |
 | `main` | Beyond Ep 1: order sync to an ERP | `export-order` grown into an event-driven integration (below), plus fixes to `stuck-orders` from a code review. Not in a published episode yet |
 | `day-NN` | Developer log | One tag per session, with its write-up in [`log/`](log/) |
 
@@ -150,11 +151,39 @@ If nothing arrives, run `aio app config get log-forwarding errors`. It shows the
 
 Once logs leave the terminal, more people read them. Log one line per significant step, with the order number or SKU in it. Never log tokens, API keys or customer personal data. Log errors with the reason and the next action ("will retry in 15 minutes"), not just a stack trace.
 
+## Webhooks (Ep 7)
+
+A Commerce webhook asks your app before Commerce acts, like an out-of-process `before` plugin. `webhooks/cart-check` answers for `observer.checkout_cart_product_add_before`: `{ "op": "success" }` lets the item in, `{ "op": "exception", "message": "..." }` stops it.
+
+`commerce/webhooks.xml` declares the hook. On PaaS it goes in a small module's `etc/` (set `CART_CHECK_URL` to the deployed action's URL), then:
+
+```bash
+bin/magento setup:upgrade
+bin/magento webhooks:list
+bin/magento webhooks:info observer.checkout_cart_product_add_before --webhook-type=before
+bin/magento webhooks:dev:run observer.checkout_cart_product_add_before:before '{"data":{"product":{"sku":"RESTRICTED-1"}}}'
+```
+
+`webhooks:info` prints the payload Commerce sends, so you pick the `source` paths from it; `webhooks:dev:run` calls your hook with a payload you supply. In production mode run `bin/magento cache:clean config` after a change. On Adobe Commerce as a Cloud Service there is no module: enter the same settings in the admin under **System > Webhooks**.
+
+**Fail open or closed.** The example uses `required="false"`: if the endpoint times out or errors, Commerce logs it and carries on (fail open). `required="true"` logs it and throws (fail closed). Use open for nice-to-have checks and closed, with a short `timeout` and monitoring, for legal or financial rules. A restricted-goods rule like this one arguably belongs in the closed group; the example stays open so a slow action can't block your store while you learn.
+
+**Signature.** The action URL is public. In **Stores > Settings > Configuration > Adobe Services > Webhooks** enable digital signatures and click **Regenerate key pair**, then put the public key in `.env` as `PUBLIC_KEY`. Commerce signs each request; the action verifies the base64 signature in `x-adobe-commerce-webhook-signature` over the exact raw bytes (`raw-http: true`). With `raw-http`, `__ow_body` can arrive base64-encoded, so the action decodes it when it isn't JSON text and verifies and parses the same bytes. A missing or invalid signature, or a signed payload without a SKU, answers `{ "op": "exception" }`. Regenerating the key pair invalidates the old key at once: update `.env` and redeploy together.
+
+A PEM has line breaks, and `.env` is one line per variable. Write the key on one line with `\n` for each break; the action turns `\n` back into newlines:
+
+```text
+PUBLIC_KEY=-----BEGIN PUBLIC KEY-----\nMIIBIjANBgkqhkiG9w0BAQEF...\n-----END PUBLIC KEY-----
+RESTRICTED_SKUS=RESTRICTED-1,RESTRICTED-2
+```
+
+Not verified against a real Commerce yet: the tests sign bodies with their own key pair.
+
 ## What's verified
 
 Each piece is marked by how far it has been proven:
 
-- **Unit-tested:** `npm test` (75 tests, run in CI on Node 20 and 24) runs the actions with Commerce, the ERP, the alert webhook, State, Files and Database Storage faked. The database fake (`fakeDb` in `test/helpers.js`) supports equality, `$ne`, `$in`, `$lt`/`$lte`/`$gt`/`$gte`, `find().sort().limit().toArray()`, `updateOne` with `$set` and upsert, unique indexes, and throws `DbError`; it proves our logic, not the real service. The State fake behaves like aio-lib-state 5.4 where it matters: `ifNotExists`, TTLs, and a paged `list()` that can return a key twice. That proves the mapping, retries, skipping a redelivered event, the retry queue, locks, time budget, dead-lettering without personal data, the stuck-order query, alert-then-remember and the report. It doesn't prove a deployment.
+- **Unit-tested:** `npm test` (90 tests, run in CI on Node 20 and 24) runs the actions with Commerce, the ERP, the alert webhook, State, Files and Database Storage faked. The database fake (`fakeDb` in `test/helpers.js`) supports equality, `$ne`, `$in`, `$lt`/`$lte`/`$gt`/`$gte`, `find().sort().limit().toArray()`, `updateOne` with `$set` and upsert, unique indexes, and throws `DbError`; it proves our logic, not the real service. The State fake behaves like aio-lib-state 5.4 where it matters: `ifNotExists`, TTLs, and a paged `list()` that can return a key twice. That proves the mapping, retries, skipping a redelivered event, the retry queue, locks, time budget, dead-lettering without personal data, the stuck-order query, alert-then-remember, the report, and the webhook's signature check (real RSA keys, a tampered body, a base64 body, an escaped-newline PEM). It doesn't prove a deployment.
 - **Verified on Stage:** nothing yet. The developer log marks code as verified once it has run in a real workspace.
 
 ## Run it
@@ -182,6 +211,9 @@ actions/
   stuck-orders/index.js         # Ep 3
   sync-log/index.js             # Ep 4: Database Storage
   order-placed/index.js         # Ep 6: Commerce event handler, idempotent through export_runs
+  cart-check/index.js           # Ep 7: webhook that verifies Commerce's signature and blocks restricted SKUs
+commerce/
+  webhooks.xml                  # Ep 7: webhook declaration (PaaS module etc/; SaaS: System > Webhooks)
 scripts/
   post-deploy-db-setup.js       # Ep 4: post-app-deploy hook, creates the indexes
 app.config.yaml                 # actions, two alarm triggers and their rules, database, post-deploy hook

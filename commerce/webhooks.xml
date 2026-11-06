@@ -1,0 +1,27 @@
+<?xml version="1.0"?>
+<!--
+  Ep 7: example webhook declaration. On Adobe Commerce (PaaS) this file belongs in a small module's
+  etc/webhooks.xml (for example app/code/Vendor/CartCheck/etc/webhooks.xml), followed by
+  bin/magento setup:upgrade. CART_CHECK_URL is the URL of the deployed webhooks/cart-check action.
+  On Adobe Commerce as a Cloud Service there is no module: enter the same settings in the admin
+  under System > Webhooks.
+
+  required="false" fails open: if the endpoint times out or errors, Commerce logs it and carries on.
+  For a legal or financial rule use required="true" (fails closed), with a short timeout and monitoring.
+-->
+<config xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+        xsi:noNamespaceSchemaLocation="urn:magento:module:Magento_AdobeCommerceWebhooks:etc/webhooks.xsd">
+  <method name="observer.checkout_cart_product_add_before" type="before">
+    <hooks>
+      <batch name="cart_rules">
+        <hook name="restricted_sku" url="{env:CART_CHECK_URL}"
+              timeout="2000" softTimeout="500" required="false"
+              fallbackErrorMessage="We couldn't check this item. Please try again.">
+          <fields>
+            <field name="product.sku" source="data.product.sku"/>
+          </fields>
+        </hook>
+      </batch>
+    </hooks>
+  </method>
+</config>
