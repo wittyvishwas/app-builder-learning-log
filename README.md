@@ -13,6 +13,7 @@ git checkout ep3-cron-state-files
 | `ep1-project-anatomy` | [Ep 1: the anatomy of a project](https://mageminion.com/app-builder-ep1-project-anatomy/) | The project layout, `app.config.yaml` (web action, inputs from `.env`, `require-adobe-auth`, `final`, limits), `.env.dist`, the `export-order` skeleton. `package.json` and `.env.dist` already list what Ep 3 needs; ignore those lines for Ep 1 |
 | — | [Ep 2: start from a boilerplate](https://mageminion.com/app-builder-ep2-first-action/) | Ep 2 starts a real integration from Adobe's [commerce-integration-starter-kit](https://github.com/adobe/commerce-integration-starter-kit). Clone that kit; it isn't copied here |
 | `ep3-cron-state-files` | [Ep 3: cron, config and custom tables](https://mageminion.com/app-builder-ep3-cron-state-files/) | `stuck-orders`: an alarm trigger and rule every 15 minutes, a Commerce REST query for orders stuck in `pending_payment`, one alert per order (State with a 7-day TTL), a State lock against overlapping runs, and an optional daily CSV report in Files (`SAVE_REPORT: true`) |
+| `ep4-database-storage` | [Ep 4: Database Storage, when State isn't enough](https://mageminion.com/app-builder-ep4-database-storage/) | `sync-log`: an action that writes one row per export attempt to a collection and returns the latest failure for a SKU. The `database` block in `app.config.yaml` (auto-provisioned, region `emea`), `include-ims-credentials: true`, and a `post-app-deploy` hook that creates the indexes. `test/helpers.js` gains `fakeDb`, an in-memory aio-lib-db that later episodes reuse |
 | `main` | Beyond Ep 1: order sync to an ERP | `export-order` grown into an event-driven integration (below), plus fixes to `stuck-orders` from a code review. Not in a published episode yet |
 | `day-NN` | Developer log | One tag per session, with its write-up in [`log/`](log/) |
 
@@ -52,11 +53,53 @@ aio rt activation list
 aio rt action invoke order-sync/export-order-retry --result   # drain the retry queue now
 ```
 
+## Database Storage
+
+Ep 4 adds the document database for Runtime actions (`@adobe/aio-lib-db`) next to State and Files. Use State for a flag, lock or cursor with a time to live, Database Storage for records you query by field, and Files for large exports.
+
+**Provision.** `app.config.yaml` has `database: { auto-provision: true, region: emea }` under `runtimeManifest`. It is provisioned by `aio app deploy`, not by `aio app run` or `aio app dev`. Each workspace has its own database, so Stage and Production are separate. The region can't be changed later without deleting the database, and `actions/sync-log` passes the same region to `init` (`AIO_DB_REGION` can also set it). By hand: `aio app db provision --region emea`.
+
+**Auth.** The library needs an IMS token. Check three things, in order:
+
+1. The **App Builder Data Services API** is added to the workspace in Developer Console.
+2. A new access token was generated after adding it (the OAuth server-to-server credential).
+3. The action has `include-ims-credentials: true`, as `order-sync/sync-log` does in `app.config.yaml`. The action then calls `Core.AuthClient.generateAccessToken(params)`.
+
+**Indexes.** `hooks.post-app-deploy` runs `scripts/post-deploy-db-setup.js` after every deploy. It reads the workspace's OAuth credentials from `.env` (`IMS_OAUTH_S2S_CLIENT_ID`, `_CLIENT_SECRET`, `_ORG_ID`, `_SCOPES`; see `.env.dist`), gets a token, and creates the indexes below. Indexes that exist are skipped, so a second deploy changes nothing. `ensureIndexes(client)` is the pure part and is what the tests call. The hook is written as `node scripts/post-deploy-db-setup.js`, so it doesn't depend on the file's execute bit.
+
+**Look inside without code:**
+
+```bash
+aio app db status
+aio app db ping
+aio app db collection list
+aio app db index list export_runs
+aio app db document find export_runs
+aio app db document count export_runs
+aio app db stats
+```
+
+**`sync-log` and the post.** The post reads the failure with `findOne({ sku, status: 'failed' })`. That returns a matching row, not necessarily the newest, so the repo sorts by `at` descending and takes one (`find(...).sort({ at: -1 }).limit(1)`), which is what the name `lastFailure` promises. Everything else is as in the post.
+
+Try it once deployed: `aio rt action invoke order-sync/sync-log -p sku MUG -p status failed -p error "ERP 503" --result`. That has not been run against a real workspace yet.
+
+### Collections
+
+Keep IDs, statuses and timestamps; look customer and order details up in Commerce instead of copying them in. Later episodes follow this table.
+
+| Collection | Written by | Fields | Indexes |
+|---|---|---|---|
+| `export_runs` | Ep 4: `sync-log` | `sku`, `status`, `error` (or `null`), `at` (ISO time) | `{ sku: 1, at: -1 }`, `{ order: 1, status: 1 }` |
+| `export_runs` | Ep 6 and Ep 10: order rows | `order`, `status` (`sent`, `retry` or `dead`), `at`; optional `attempts`, `nextAt`, `lastError`; `mapped` on `retry` rows only (no customer or address blocks); lines and totals on `dead` rows only (no customer). The Ep 6 check is `findOne({ order, status: 'sent' })` | same collection, same indexes |
+| `stuck_alerts` | Ep 9 | `order`, `status`, `created_at`, `at`, `handled` (boolean), `handledAt` (optional) | unique `{ order: 1 }`, `{ handled: 1, at: -1 }` |
+
+The Ep 6 to Ep 10 rows are planned and not in the code yet; the indexes for them are already created by the hook.
+
 ## What's verified
 
 Each piece is marked by how far it has been proven:
 
-- **Unit-tested:** `npm test` (39 tests, run in CI on Node 20 and 24) runs the actions with Commerce, the ERP, the alert webhook, State and Files faked. The State fake behaves like aio-lib-state 5.4 where it matters: `ifNotExists`, TTLs, and a paged `list()` that can return a key twice. That proves the mapping, retries, skipping a redelivered event, the retry queue, locks, time budget, dead-lettering without personal data, the stuck-order query, alert-then-remember and the report. It doesn't prove a deployment.
+- **Unit-tested:** `npm test` (53 tests, run in CI on Node 20 and 24) runs the actions with Commerce, the ERP, the alert webhook, State, Files and Database Storage faked. The database fake (`fakeDb` in `test/helpers.js`) supports equality, `$ne`, `$in`, `$lt`/`$lte`/`$gt`/`$gte`, `find().sort().limit().toArray()`, `updateOne` with `$set` and upsert, unique indexes, and throws `DbError`; it proves our logic, not the real service. The State fake behaves like aio-lib-state 5.4 where it matters: `ifNotExists`, TTLs, and a paged `list()` that can return a key twice. That proves the mapping, retries, skipping a redelivered event, the retry queue, locks, time budget, dead-lettering without personal data, the stuck-order query, alert-then-remember and the report. It doesn't prove a deployment.
 - **Verified on Stage:** nothing yet. The developer log marks code as verified once it has run in a real workspace.
 
 ## Run it
@@ -82,7 +125,10 @@ actions/
   export-order-retry/index.js   # order sync: scheduled retry
   order-sync/                   # mapper, ERP client, State bookkeeping, export logic
   stuck-orders/index.js         # Ep 3
-app.config.yaml                 # actions, two alarm triggers and their rules
+  sync-log/index.js             # Ep 4: Database Storage
+scripts/
+  post-deploy-db-setup.js       # Ep 4: post-app-deploy hook, creates the indexes
+app.config.yaml                 # actions, two alarm triggers and their rules, database, post-deploy hook
 test/                           # Jest unit tests (everything external faked)
 log/                            # developer-log write-ups, one per tag
 ```

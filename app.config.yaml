@@ -1,6 +1,14 @@
 application:
   actions: actions
+  hooks:
+    # Ep 4: create the database indexes after every deploy (skips the ones that exist).
+    post-app-deploy: node scripts/post-deploy-db-setup.js
   runtimeManifest:
+    # Ep 4: Database Storage, one database per workspace. Auto-provisioned on `aio app deploy`
+    # (not on `aio app run` or `aio app dev`). The region must match the one in actions/sync-log.
+    database:
+      auto-provision: true
+      region: emea
     packages:
       # Order sync to an ERP. Ep 1 introduced export-order as a web action; it is now invoked by
       # Adobe I/O Events (observer.sales_order_place_after), so it is not public and needs no web URL.
@@ -35,6 +43,17 @@ application:
               # a State lock covers a manual invoke during a scheduled run.
               timeout: 300000
               memory: 256
+          # Ep 4: writes a row per export attempt to the export_runs collection and returns the latest failure for a SKU.
+          sync-log:
+            function: actions/sync-log/index.js
+            runtime: nodejs:20
+            web: 'no'
+            inputs:
+              LOG_LEVEL: info
+            annotations:
+              # The action receives the workspace's OAuth credentials, which aio-lib-db needs for its token.
+              include-ims-credentials: true
+              final: true
         triggers:
           every10Minutes:
             feed: /whisk.system/alarms/alarm

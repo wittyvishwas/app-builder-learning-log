@@ -8,9 +8,10 @@
     "test": "jest"
   },
   "dependencies": {
-    "@adobe/aio-sdk": "^6.0.0",
+    "@adobe/aio-lib-db": "^1.1.0",
+    "@adobe/aio-lib-files": "^4.1.4",
     "@adobe/aio-lib-state": "^5.4.0",
-    "@adobe/aio-lib-files": "^4.1.4"
+    "@adobe/aio-sdk": "^6.0.0"
   },
   "devDependencies": {
     "jest": "^30.5.2"

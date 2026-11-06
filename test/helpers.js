@@ -1,4 +1,4 @@
-/* Shared fakes: an in-memory State with list() support and a scripted fetch. */
+/* Shared fakes: an in-memory State with list() support, a scripted fetch and an in-memory aio-lib-db. */
 function fakeState (store, { pages = 1, duplicate = false, ttls = new Map() } = {}) {
   return {
     get: async k => (store.has(k) ? { value: store.get(k) } : undefined),
@@ -20,6 +20,130 @@ function fakeState (store, { pages = 1, duplicate = false, ttls = new Map() } = 
         if (duplicate && keys.length) yield { keys: [keys[0]] }
       })()
     }
+  }
+}
+
+// Like aio-lib-db: every failure is a DbError (e.name === 'DbError').
+class DbError extends Error {
+  constructor (message) { super(message); this.name = 'DbError' }
+}
+
+const OPS = {
+  $ne: (v, x) => !same(v, x),
+  $in: (v, x) => x.some(y => same(v, y)),
+  $lt: (v, x) => v !== undefined && v !== null && v < x,
+  $lte: (v, x) => v !== undefined && v !== null && v <= x,
+  $gt: (v, x) => v !== undefined && v !== null && v > x,
+  $gte: (v, x) => v !== undefined && v !== null && v >= x
+}
+// Mongo-style equality: null also matches a missing field.
+const same = (v, x) => (x === null ? v === null || v === undefined : v === x)
+const isOps = c => c && typeof c === 'object' && !Array.isArray(c) && Object.keys(c).some(k => k.startsWith('$'))
+
+function matches (doc, filter = {}) {
+  return Object.entries(filter).every(([field, cond]) => {
+    const v = doc[field]
+    if (!isOps(cond)) return same(v, cond)
+    return Object.entries(cond).every(([op, x]) => {
+      if (!OPS[op]) throw new DbError(`fakeDb: unsupported operator ${op}`)
+      return OPS[op](v, x)
+    })
+  })
+}
+
+// An in-memory aio-lib-db for tests. `data` maps collection name to an array of documents.
+// opts.failOn: method names (insertOne, find, createIndex, ...) that throw a DbError, or connect/close.
+// Returns the module-shaped object (init) plus inspection helpers: calls, data, client.
+function fakeDb (data = new Map(), { failOn = [] } = {}) {
+  const calls = { init: [], connect: 0, close: 0 }
+  const indexes = new Map() // collection -> [{ name, key, unique }]
+  const fail = op => { if (failOn.includes(op)) throw new DbError(`fakeDb: ${op} failed`) }
+  const rows = name => { if (!data.has(name)) data.set(name, []); return data.get(name) }
+  const idxOf = name => {
+    if (!indexes.has(name)) indexes.set(name, [{ name: '_id_', key: { _id: 1 }, unique: true }])
+    return indexes.get(name)
+  }
+  const checkUnique = (name, doc, ignore) => {
+    for (const ix of idxOf(name).filter(i => i.unique && i.name !== '_id_')) {
+      const keys = Object.keys(ix.key)
+      if (rows(name).some(r => r !== ignore && keys.every(k => r[k] === doc[k]))) {
+        throw new DbError(`fakeDb: duplicate key on ${name}.${ix.name}`)
+      }
+    }
+  }
+
+  const collection = name => {
+    const insert = doc => { checkUnique(name, doc); rows(name).push(doc) }
+    return {
+      insertOne: async doc => { fail('insertOne'); insert({ ...doc }); return { insertedId: rows(name).length } },
+      insertMany: async docs => { fail('insertMany'); docs.forEach(d => insert({ ...d })); return { insertedCount: docs.length } },
+      findOne: async (filter = {}) => { fail('findOne'); const d = rows(name).find(r => matches(r, filter)); return d ? { ...d } : null },
+      find: (filter = {}) => {
+        fail('find')
+        let sortSpec = null
+        let max = Infinity
+        const cursor = {
+          sort: spec => { sortSpec = spec; return cursor },
+          limit: n => { max = n; return cursor },
+          toArray: async () => {
+            let out = rows(name).filter(r => matches(r, filter)).map(r => ({ ...r }))
+            if (sortSpec) {
+              const keys = Object.entries(sortSpec)
+              out = out.sort((a, b) => {
+                for (const [k, dir] of keys) if (a[k] !== b[k]) return (a[k] < b[k] ? -1 : 1) * dir
+                return 0
+              })
+            }
+            return out.slice(0, max)
+          }
+        }
+        return cursor
+      },
+      updateOne: async (filter, update, { upsert = false } = {}) => {
+        fail('updateOne')
+        const doc = rows(name).find(r => matches(r, filter))
+        if (doc) { checkUnique(name, { ...doc, ...update.$set }, doc); Object.assign(doc, update.$set); return { matchedCount: 1, modifiedCount: 1, upsertedCount: 0 } }
+        if (!upsert) return { matchedCount: 0, modifiedCount: 0, upsertedCount: 0 }
+        const plain = Object.fromEntries(Object.entries(filter).filter(([, v]) => !isOps(v)))
+        insert({ ...plain, ...update.$set })
+        return { matchedCount: 0, modifiedCount: 0, upsertedCount: 1 }
+      },
+      updateMany: async (filter, update, { upsert = false } = {}) => {
+        fail('updateMany')
+        const docs = rows(name).filter(r => matches(r, filter))
+        docs.forEach(d => Object.assign(d, update.$set))
+        if (!docs.length && upsert) {
+          const plain = Object.fromEntries(Object.entries(filter).filter(([, v]) => !isOps(v)))
+          insert({ ...plain, ...update.$set })
+          return { matchedCount: 0, modifiedCount: 0, upsertedCount: 1 }
+        }
+        return { matchedCount: docs.length, modifiedCount: docs.length, upsertedCount: 0 }
+      },
+      deleteOne: async filter => {
+        fail('deleteOne')
+        const i = rows(name).findIndex(r => matches(r, filter))
+        if (i >= 0) rows(name).splice(i, 1)
+        return { deletedCount: i >= 0 ? 1 : 0 }
+      },
+      countDocuments: async (filter = {}) => { fail('countDocuments'); return rows(name).filter(r => matches(r, filter)).length },
+      createIndex: async (spec, options = {}) => {
+        fail('createIndex')
+        const ixName = options.name || Object.entries(spec).map(([k, v]) => `${k}_${v}`).join('_')
+        if (!idxOf(name).some(i => i.name === ixName)) idxOf(name).push({ name: ixName, key: spec, unique: !!options.unique })
+        return ixName
+      },
+      getIndexes: async () => { fail('getIndexes'); return idxOf(name).map(i => ({ ...i })) }
+    }
+  }
+
+  const client = {
+    collection: name => collection(name),
+    close: async () => { calls.close++; fail('close') }
+  }
+  const db = { connect: async () => { calls.connect++; fail('connect'); return client } }
+  return {
+    init: async opts => { calls.init.push(opts); fail('init'); return db },
+    client, calls, data, indexes
   }
 }
 
@@ -51,4 +175,4 @@ const order = {
   ]
 }
 
-module.exports = { fakeState, scriptedFetch, order }
+module.exports = { fakeState, fakeDb, DbError, scriptedFetch, order }
