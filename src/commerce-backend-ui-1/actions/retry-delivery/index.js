@@ -21,7 +21,9 @@ async function fetchOrder (params, order) {
     'searchCriteria[filter_groups][0][filters][0][condition_type]': 'eq'
   })
   const res = await fetch(`${base}/rest/V1/orders?${query}`, {
-    headers: { Authorization: `Bearer ${params.COMMERCE_TOKEN}` }
+    headers: { Authorization: `Bearer ${params.COMMERCE_TOKEN}` },
+    // A slow Commerce must not hold the admin's request: a timeout ends in 502 like any Commerce failure.
+    signal: AbortSignal.timeout(10000)
   })
   if (!res.ok) throw new Error(`Commerce returned ${res.status}`)
   const found = ((await res.json()).items || []).find(o => String(o.increment_id) === order)
@@ -31,7 +33,7 @@ async function fetchOrder (params, order) {
 async function main (params) {
   const logger = Core.Logger('retry-delivery', { level: params.LOG_LEVEL || 'info' })
   if (typeof params.order !== 'string' || !params.order.trim()) return reply(400, 'order is required')
-  const order = params.order
+  const order = params.order.trim()
   let client
   try {
     const token = await Core.AuthClient.generateAccessToken(params)

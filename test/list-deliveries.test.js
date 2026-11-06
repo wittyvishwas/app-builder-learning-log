@@ -57,6 +57,18 @@ test('returns at most 50 rows, failures kept ahead of the newer sent rows', asyn
   expect(res.body[1].order).toBe('S59')
 })
 
+test('retry and dead rows of an order that also has a sent row are left out', async () => {
+  mockDb = fakeDb(new Map([['export_runs', [
+    { order: 'A', status: 'sent', at: at(1) },
+    { order: 'A', status: 'dead', at: at(2), attempts: 6 },
+    { order: 'B', status: 'sent', at: at(3) },
+    { order: 'B', status: 'retry', at: at(4), attempts: 1, nextAt: at(4) },
+    { order: 'C', status: 'dead', at: at(5), attempts: 6 }
+  ]]]))
+  const res = await main({})
+  expect(res.body.map(r => `${r.order}:${r.status}`)).toEqual(['C:dead', 'B:sent', 'A:sent'])
+})
+
 test('an empty collection answers an empty list', async () => {
   mockDb = fakeDb()
   expect(await main({})).toEqual({ statusCode: 200, body: [] })

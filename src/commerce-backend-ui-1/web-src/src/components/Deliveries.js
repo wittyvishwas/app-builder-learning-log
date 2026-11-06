@@ -5,7 +5,7 @@ import {
 import { useCallback, useEffect, useState } from 'react'
 import { callAction } from '../utils'
 
-// One table of recent deliveries (list-deliveries, failures first); "Retry" on retry and dead rows (retry-delivery).
+// One table of recent deliveries (list-deliveries, failures first); "Retry" on dead rows only (retry-delivery); a retry row is already due at the next run.
 export const Deliveries = props => {
   const [rows, setRows] = useState(null)
   const [error, setError] = useState(null)
@@ -64,9 +64,9 @@ export const Deliveries = props => {
         </TableHeader>
         <TableBody items={rows}>
           {delivery => (
-            <Row key={delivery.order}>
+            <Row key={`${delivery.order}:${delivery.status}`}>
               {key => key === 'action'
-                ? <Cell>{delivery.status !== 'sent' && <ActionButton onPress={() => retry(delivery.order)}>Retry</ActionButton>}</Cell>
+                ? <Cell>{delivery.status === 'dead' && <ActionButton onPress={() => retry(delivery.order)}>Retry</ActionButton>}</Cell>
                 : <Cell>{delivery[key]}</Cell>}
             </Row>
           )}

@@ -63,10 +63,11 @@ test.each([undefined, '', '   ', 301, null, { $ne: '' }])('rejects a missing or 
 })
 
 test('a retry row: nextAt becomes now, the stored order stays, Commerce is not called', async () => {
-  rows().push({ order: '000000301', status: 'retry', at: '2027-01-01T00:00:00.000Z', attempts: 3, nextAt: '2027-01-01T00:00:00.000Z', mapped: { orderNumber: '000000301' } })
+  rows().push({ order: '000000301', status: 'retry', at: '2027-01-01T00:00:00.000Z', attempts: 3, nextAt: '2020-01-01T00:00:00.000Z', mapped: { orderNumber: '000000301' } })
   const before = Date.now()
   const res = await main({ ...params, order: '000000301' })
   expect(res).toEqual({ statusCode: 200, body: { order: '000000301', status: 'retry' } })
+  expect(row('000000301').nextAt).not.toBe('2020-01-01T00:00:00.000Z')
   expect(Date.parse(row('000000301').nextAt)).toBeGreaterThanOrEqual(before)
   expect(row('000000301')).toMatchObject({ status: 'retry', attempts: 3, mapped: { orderNumber: '000000301' } })
   expect(global.fetch).not.toHaveBeenCalled()
@@ -82,6 +83,10 @@ test('a dead row: the order is fetched from Commerce, mapped, and the row goes b
 
   const [url, opts] = global.fetch.mock.calls[0]
   expect(url.startsWith('https://shop.example/rest/V1/orders?')).toBe(true) // trailing slash tolerated
+  // The brackets and the value are percent-encoded in the raw URL (URLSearchParams), as Commerce expects.
+  expect(url).toContain('searchCriteria%5Bfilter_groups%5D%5B0%5D%5Bfilters%5D%5B0%5D%5Bvalue%5D=000000301')
+  expect(url).not.toContain('[')
+  expect(opts.signal).toBeInstanceOf(AbortSignal)
   const q = new URL(url).searchParams
   expect(q.get('searchCriteria[filter_groups][0][filters][0][field]')).toBe('increment_id')
   expect(q.get('searchCriteria[filter_groups][0][filters][0][value]')).toBe('000000301')
@@ -102,6 +107,23 @@ test('a dead row: the order is fetched from Commerce, mapped, and the row goes b
     lines: [{ sku: 'TSHIRT-M', qty: 2, unitPrice: 29.95, rowTotal: 59.9 }]
   })
   expect(row('000000301').mapped.lines).toHaveLength(1)
+  expect(mockDb.calls.close).toBe(1)
+})
+
+test('the order number is trimmed before it is used for the row and the Commerce filter', async () => {
+  rows().push(dead())
+  commerce(200)
+  const res = await main({ ...params, order: ' 000000301 ' })
+  expect(res.body).toEqual({ order: '000000301', status: 'retry' })
+  expect(new URL(global.fetch.mock.calls[0][0]).searchParams.get('searchCriteria[filter_groups][0][filters][0][value]')).toBe('000000301')
+  expect(row('000000301').status).toBe('retry')
+})
+
+test('a Commerce timeout gives 502 and the row stays dead', async () => {
+  rows().push(dead())
+  global.fetch = jest.fn(async () => { throw new DOMException('The operation was aborted due to timeout', 'TimeoutError') })
+  expect(await main({ ...params, order: '000000301' })).toEqual({ statusCode: 502, body: { error: 'commerce error' } })
+  expect(row('000000301')).toEqual(dead())
   expect(mockDb.calls.close).toBe(1)
 })
 
