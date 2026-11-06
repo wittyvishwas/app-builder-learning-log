@@ -19,19 +19,27 @@ git checkout ep3-cron-state-files
 | `ep7-webhooks` | [Ep 7: replace a plugin with a webhook](https://mageminion.com/app-builder-ep7-webhooks/) | `webhooks/cart-check`: a web action with `raw-http: true` that verifies Commerce's `x-adobe-commerce-webhook-signature` over the base64 body, then answers `success`, or `exception` with a message for a SKU in `RESTRICTED_SKUS`; a missing or invalid signature is refused. Plus `commerce/webhooks.xml` |
 | `ep8-api-mesh` | [Ep 8: API Mesh, one endpoint, and the truth about its cache](https://mageminion.com/app-builder-ep8-api-mesh/) | `mesh/mesh.json`: Commerce GraphQL and a REST reviews API behind one endpoint, joined with `keyField`/`keysArg`, mesh cache on. Endpoints are placeholders |
 | `ep9-admin-ui-sdk` | [Ep 9: a page in the Commerce admin with the Admin UI SDK](https://mageminion.com/app-builder-ep9-admin-ui-sdk/) | An Admin UI SDK v1 extension (`src/commerce-backend-ui-1/`, laid out like Adobe's custom-menu sample): a **Stuck orders** menu item and a React Spectrum page listing open alerts, with `list-alerts` and `mark-handled` actions behind `require-adobe-auth`. `stuck-orders` now also writes each alert to the `stuck_alerts` collection |
-| `main` | Beyond Ep 1: order sync to an ERP | `export-order` grown into an event-driven integration (below), plus fixes to `stuck-orders` from a code review. Not in a published episode yet |
+| `ep10-port-a-module` | [Ep 10: port a small Magento module to App Builder](https://mageminion.com/app-builder-ep10-port-a-module/) | The order sync as the ported module: `order-sync/export-order` and the alarm-driven `export-order-retry` keep their bookkeeping in the `export_runs` collection (Ep 4), and State keeps only the retry lock. Both actions get `include-ims-credentials: true` |
+| `main` | After Ep 10: order sync, admin page and fixes | The order sync (below) as of Ep 10, the Ep 9 admin page, and fixes to `stuck-orders` from a code review |
 | `day-NN` | Developer log | One tag per session, with its write-up in [`log/`](log/) |
 
 ## Order sync to an ERP
 
-In Ep 1, `export-order` was a web action behind Adobe auth that only checked its inputs. On `main`, Adobe I/O Events invokes it directly, so it is a non-web action with no public URL, and it does the work:
+In Ep 1, `export-order` was a web action behind Adobe auth that only checked its inputs. From Ep 10 on, Adobe I/O Events invokes it directly, so it is a non-web action with no public URL, and it does the work. The bookkeeping lives in Database Storage (`export_runs`, Ep 4); State keeps only a lock.
 
 1. **Commerce** publishes `observer.sales_order_place_after` through Adobe I/O Events.
 2. **`order-sync/export-order`** receives it, maps the order with `actions/order-sync/mapper.js` and POSTs it to `ERP_API_URL/orders` with a Bearer key and the order number as `Idempotency-Key`.
-3. **Retries:** network errors, 429 and 5xx get up to three tries with backoff in the same call. If the ERP is still down, the mapped order is queued in State (`order-sync.retry.*`, 7 days) and **`order-sync/export-order-retry`** resends it every 10 minutes, one try per order per run, for up to six runs in total. A run stops at `MAX_PER_RUN` orders or after 240 seconds, whichever comes first, and reports what's `left` for the next run. A State lock stops a manual invoke from overlapping the scheduled run.
-4. **Duplicates:** a delivered order is remembered for 30 days (`order-sync.done.*`), so a redelivered event isn't sent twice. Two deliveries that race (a redelivery while the first is still running) can both POST; the ERP's `Idempotency-Key` makes the second a 409, which counts as success. The ERP is the guarantee; State is the fast path.
-5. **Failures for a human:** a 4xx from the ERP, or an order still failing after the last run, lands in `order-sync.dead.*` for a year, with the order number, lines, totals, status and last error. The customer and addresses are left out (look them up in Commerce), and ERP response bodies are only logged at debug level, because ERPs often echo the request.
-6. **Return codes:** the handler answers 200 for exported, skipped, queued, dead or malformed events, and an error only when it couldn't record anything (State down) or settings are missing, so I/O Events redelivers those. I haven't verified I/O Events' retry schedule for runtime-action consumers yet; check the [Events docs](https://developer.adobe.com/events/docs/) before relying on it.
+3. **Retries:** network errors, 429 and 5xx get up to three tries with backoff in the same call. If the ERP is still down, the order becomes a `retry` row in `export_runs` (with the mapped order, `attempts` and `nextAt`) and **`order-sync/export-order-retry`**, run by the alarm trigger every 10 minutes, resends it: one try per order per run, for up to six runs in total. A run picks `find({ status: 'retry', nextAt: { $lte: now } }).sort({ nextAt: 1 }).limit(MAX_PER_RUN)`, stops after 240 seconds as well, and reports what's `left` for the next run. A State lock (`order-sync.lock.retry`, `ifNotExists`, 10 minutes) stops a manual invoke from overlapping the scheduled run. It is the only thing order sync keeps in State.
+4. **Duplicates:** a delivered order is a `sent` row, and the check is `findOne({ order, status: 'sent' })`, the same row and the same check Ep 6's `events/order-placed` uses, so the two actions see each other's deliveries. Two deliveries that race (a redelivery while the first is still running) can both POST; the ERP's `Idempotency-Key` makes the second a 409, which counts as success. The ERP is the guarantee; the row is the fast path.
+5. **One row per order.** Every write is `updateOne({ order }, { $set: ... }, { upsert: true })`, so an order moves `retry` -> `sent` or `dead` in place and never has two rows. When it settles, the row's `mapped` and `nextAt` are set to `null`.
+6. **Failures for a human:** a 4xx from the ERP, or an order still failing after the last run, becomes a `dead` row with the order number, `lines`, `totals`, `attempts`, `httpStatus` and `lastError`. The customer and addresses are left out (look them up in Commerce). ERP response bodies are never logged, at any level, because ERPs often echo the request, and error logs carry the message only, never the error object.
+7. **Return codes:** the handler answers 200 for exported, skipped, queued, dead or malformed events, and an error only when it couldn't record anything (Database Storage down) or settings are missing, so I/O Events redelivers those. I haven't verified I/O Events' retry schedule for runtime-action consumers yet; check the [Events docs](https://developer.adobe.com/events/docs/) before relying on it.
+
+**What moved from State to the database.** State had `done` (30 days), `retry` (7 days) and `dead` (365 days) keys with a time to live. Database Storage has **no TTL**: rows stay until someone deletes them. That is a feature for dead rows (a human reads them) and a chore for `sent` rows. Cleanup is not built here; a scheduled `deleteMany({ status: 'sent', at: { $lt: cutoff } })` (check that your aio-lib-db version supports it, and index `at`) is what to add once the collection grows. Until then the `retry` rows are the only ones that hold personal data (see below), and they are cleared when the order settles.
+
+**Personal data.** `mapped` on a `retry` row is the complete ERP order, customer and addresses included, because a retry has to resend it as is. It exists for minutes (six runs, ten minutes apart), then becomes `null` when the row turns `sent` or `dead`. Dead rows never hold it.
+
+**Credentials for alarm-triggered runs.** Database Storage needs the workspace's OAuth credentials, so both `export-order` and `export-order-retry` have `include-ims-credentials: true`. That annotation is what injects the credentials, and it applies to an alarm-triggered run as well as to a manual invoke. I can't verify that in CI (the tests fake the token call). After a deploy, check it once with `aio rt action invoke order-sync/export-order-retry --result` and, after the next alarm, with `aio rt activation list`; a missing credential shows up as a 500 with a token error in `aio rt activation logs`.
 
 The ERP side is generic: change `mapper.js` for your ERP's order shape and `erp.js` if its API differs (URL, auth, duplicate status).
 
@@ -40,13 +48,17 @@ The ERP side is generic: change `mapper.js` for your ERP's order shape and `erp.
 Check the `--fields` syntax for nested data (items, addresses) against the Adobe I/O Events for Commerce docs for your Commerce version before you run this, and confirm with `bin/magento events:list` and one test order:
 
 ```bash
-# Commerce: send the event, with the fields mapper.js reads
+# Commerce: send the event, with exactly the fields mapper.js reads
 bin/magento events:subscribe observer.sales_order_place_after \
-  --fields=increment_id --fields=created_at --fields=order_currency_code --fields=grand_total \
-  --fields=shipping_amount --fields=tax_amount --fields=customer_email \
-  --fields=customer_firstname --fields=customer_lastname --fields=billing_address --fields=items
+  --fields=increment_id --fields=created_at --fields=order_currency_code --fields=base_currency_code \
+  --fields=grand_total --fields=shipping_amount --fields=tax_amount \
+  --fields=customer_email --fields=customer_firstname --fields=customer_lastname \
+  --fields=billing_address --fields=shipping_address --fields=addresses \
+  --fields=extension_attributes --fields=items
 aio app deploy
 ```
+
+That is the union of what `mapper.js` reads, and the mapper takes the shipping address from the first of `extension_attributes.shipping_assignments[0].shipping.address`, `shipping_address` or the `shipping` entry of `addresses`. If your Commerce version sends the address in one of those places, you can subscribe to just that one. Ep 10's post uses a shorter command (`increment_id`, `items`, `shipping_address`); that is the fulfilment example, where the ERP only needs the lines and where to ship. This repo's mapper also sends the customer and totals, so it needs the fields above.
 
 Then, in Developer Console, add an event registration in the workspace for `com.adobe.commerce.observer.sales_order_place_after` and pick the runtime action `order-sync/export-order` as its consumer.
 
@@ -95,14 +107,14 @@ Keep IDs, statuses and timestamps; look customer and order details up in Commerc
 | Collection | Written by | Fields | Indexes |
 |---|---|---|---|
 | `export_runs` | Ep 4: `sync-log` | `sku`, `status`, `error` (or `null`), `at` (ISO time) | `{ sku: 1, at: -1 }`, `{ order: 1, status: 1 }` |
-| `export_runs` | Ep 6 and Ep 10: order rows | `order`, `status` (`sent`, `retry` or `dead`), `at`; optional `attempts`, `nextAt`, `lastError`; `mapped` on `retry` rows only (no customer or address blocks); lines and totals on `dead` rows only (no customer). The Ep 6 check is `findOne({ order, status: 'sent' })` | same collection, same indexes |
+| `export_runs` | Ep 6 and Ep 10: order rows | `order`, `status` (`sent`, `retry` or `dead`), `at`; on Ep 10 `retry` and `dead` rows also `attempts`, `lastError`, `httpStatus`; `retry` rows `nextAt` and `mapped` (the ERP order, which a retry resends as is, so it includes the customer and addresses until the row settles; then `null`); `dead` rows `lines` and `totals` only (no customer or addresses). The Ep 6 check is `findOne({ order, status: 'sent' })` | same collection, same indexes |
 | `stuck_alerts` | Ep 9: `stuck-orders` writes, `mark-handled` updates | `order`, `status`, `created_at` (the order's own creation time), `at` (last alert, ISO time), `handled` (boolean), `handledAt` (optional) | unique `{ order: 1 }`, `{ handled: 1, at: -1 }` |
 
-Ep 6 writes the `sent` order rows (`events/order-placed`). The Ep 10 rows (`retry`, `dead`) are planned and not in the code yet; the indexes for them are already created by the hook.
+Ep 6 writes the `sent` order rows (`events/order-placed`); Ep 10's `order-sync` actions write all three (`sent`, `retry`, `dead`), one row per order, with `updateOne` and upsert by `order`. The indexes for them are created by the hook. There is no TTL: rows stay until cleaned (see Order sync above).
 
 ## Commerce events (Ep 6)
 
-`events/order-placed` is the handler from the post: Adobe I/O Events delivers `observer.sales_order_place_after`, and the action sends the order to the ERP once. It reads `params.data?.value ?? params.data`, answers 400 (logging only the data keys) when there's no `increment_id`, skips an order that already has a `{ order, status: 'sent' }` row in `export_runs`, sends it with `sendToErp` (the post leaves that out; here it is in `actions/order-placed/index.js` and reuses `actions/order-sync/erp.js`, so the order number is the `Idempotency-Key` and a 409 counts as success), then inserts the `sent` row. Any error answers 500 so a retry is possible, and an event it can never process (no order number) answers 400, as in the post. Whether I/O Events retries a Runtime action based on its returned `statusCode` is not verified on Stage yet. A permanent ERP error (400/422) also returns 500 here, so each redelivery POSTs again; Ep 10's `export-order` dead-letters those instead. `export-order` answers 200 for malformed events while `order-placed` follows the post's 400, because an unprocessable event shouldn't count as a delivery failure against the registration. `sendToErp` stays in `index.js` because it is one small helper; the post's tip about its own file applies once it grows. The database client is closed in `finally`.
+`events/order-placed` is the handler from the post: Adobe I/O Events delivers `observer.sales_order_place_after`, and the action sends the order to the ERP once. It reads `params.data?.value ?? params.data`, answers 400 (logging only the data keys) when there's no `increment_id`, skips an order that already has a `{ order, status: 'sent' }` row in `export_runs`, sends it with `sendToErp` (the post leaves that out; here it is in `actions/order-placed/index.js` and reuses `actions/order-sync/erp.js`, so the order number is the `Idempotency-Key` and a 409 counts as success), then inserts the `sent` row. Any error answers 500 so a retry is possible, and an event it can never process (no order number) answers 400, as in the post. Whether I/O Events retries a Runtime action based on its returned `statusCode` is not verified on Stage yet. A permanent ERP error (400/422) also returns 500 here, so each redelivery POSTs again; Ep 10's `export-order` writes a `dead` row for those instead. `export-order` answers 200 for malformed events while `order-placed` follows the post's 400, because an unprocessable event shouldn't count as a delivery failure against the registration. `sendToErp` stays in `index.js` because it is one small helper; the post's tip about its own file applies once it grows. The database client is closed in `finally`.
 
 ```bash
 # Commerce (PaaS): the event provider, then the subscription with only the fields the handler needs
@@ -117,7 +129,7 @@ Then, in Developer Console, in the workspace: **Add service > Event > Commerce e
 
 **Duplicates.** Commerce retries sending events to Adobe I/O, up to 7 times by default, so the same order can arrive more than once; the `export_runs` check is what makes that safe. Two deliveries that race can both pass the check and both POST; the ERP's `Idempotency-Key` makes the second a 409, which counts as success, so the ERP stays the guarantee.
 
-**Register only one.** `events/order-placed` and `order-sync/export-order` both consume the same event. `order-sync/export-order` is the full version, built in Ep 10 (retry queue, dead letters, mapped order), and `order-placed` is the minimal one this episode teaches. Register one of them as the consumer, never both, or every order is handled twice. Not verified on a real workspace yet.
+**Register only one.** `events/order-placed` and `order-sync/export-order` both consume the same event. `order-sync/export-order` is the full version, built in Ep 10 (retry rows, dead rows, mapped order), and `order-placed` is the minimal one this episode teaches. Register one of them as the consumer, never both, or every order is handled twice. Not verified on a real workspace yet.
 
 ## Log forwarding to New Relic (Ep 5)
 
@@ -226,7 +238,7 @@ The reviews endpoint must answer `/reviews?skus=A,B` with one list per SKU, in t
 
 Each piece is marked by how far it has been proven:
 
-- **Unit-tested:** `npm test` (124 tests, run in CI on Node 20 and 24) runs the actions with Commerce, the ERP, the alert webhook, State, Files and Database Storage faked. The database fake (`fakeDb` in `test/helpers.js`) supports equality, `$ne`, `$in`, `$lt`/`$lte`/`$gt`/`$gte`, `find().sort().limit().toArray()`, `updateOne` with `$set` and upsert, unique indexes, and throws `DbError`; it proves our logic, not the real service. The State fake behaves like aio-lib-state 5.4 where it matters: `ifNotExists`, TTLs, and a paged `list()` that can return a key twice. That proves the mapping, retries, skipping a redelivered event, the retry queue, locks, time budget, dead-lettering without personal data, the stuck-order query, alert-then-remember, the report, and the webhook's signature check (real RSA keys, a tampered body, a base64 body, an escaped-newline PEM, a missing key answering 500). It doesn't prove a deployment.
+- **Unit-tested:** `npm test` (129 tests, run in CI on Node 20 and 24) runs the actions with Commerce, the ERP, the alert webhook, State, Files and Database Storage faked. The database fake (`fakeDb` in `test/helpers.js`) supports equality, `$ne`, `$in`, `$lt`/`$lte`/`$gt`/`$gte`, `find().sort().limit().toArray()`, `updateOne` with `$set` and upsert, unique indexes, and throws `DbError`; it proves our logic, not the real service. The State fake behaves like aio-lib-state 5.4 where it matters: `ifNotExists` (the retry lock). That proves the mapping, retries, skipping a redelivered event, the retry rows, the lock, time budget, dead rows without personal data, one row per order across sent, retry and dead, no ERP body or error object in any log line, the stuck-order query, alert-then-remember, the report, and the webhook's signature check (real RSA keys, a tampered body, a base64 body, an escaped-newline PEM, a missing key answering 500). It doesn't prove a deployment.
 - **Verified on Stage:** nothing yet. The developer log marks code as verified once it has run in a real workspace.
 
 ## Run it
@@ -250,7 +262,7 @@ actions/
   utils.js                      # input check and error response helpers
   export-order/index.js         # order sync: I/O Events handler (Ep 1 skeleton at tag ep1-project-anatomy)
   export-order-retry/index.js   # order sync: scheduled retry
-  order-sync/                   # mapper, ERP client, State bookkeeping, export logic
+  order-sync/                   # mapper, ERP client, export_runs bookkeeping (Database Storage) and the State lock, export logic
   stuck-orders/index.js         # Ep 3
   sync-log/index.js             # Ep 4: Database Storage
   order-placed/index.js         # Ep 6: Commerce event handler, idempotent through export_runs

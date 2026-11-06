@@ -5,7 +5,7 @@
  * The Ep 1 version of this action (inputs check only) is at tag ep1-project-anatomy.
  * Return codes matter: a 2xx tells I/O Events the event is handled (exported, skipped or
  * queued for our own retry); a 5xx makes I/O Events redeliver it, which we only want when
- * we couldn't even record the failure.
+ * we couldn't even record the failure. Needs include-ims-credentials: true in app.config.yaml (Database Storage token).
  */
 const { Core } = require('@adobe/aio-sdk')
 const { errorResponse, checkMissingRequestInputs } = require('../utils')
@@ -29,16 +29,21 @@ async function main (params) {
     return { statusCode: 200, body: { outcome: 'ignored', reason: 'no order in event' } }
   }
 
+  let db
   try {
+    db = await store.connect(params)
     const result = await exportOrder(order, {
-      store: await store.open(),
+      store: db.store,
       erp: { url: params.ERP_API_URL, apiKey: params.ERP_API_KEY },
       logger
     })
     return { statusCode: 200, body: result }
   } catch (e) {
-    logger.error(e)
+    // Message only: never the whole error or an ERP response body.
+    logger.error(`order ${order.increment_id}: ${e.message}`)
     return errorResponse(500, `order ${order.increment_id}: ${e.message}`, logger)
+  } finally {
+    if (db) await db.close().catch(() => {})
   }
 }
 
