@@ -1,0 +1,22 @@
+application:
+  actions: actions
+  runtimeManifest:
+    packages:
+      # Ep 1: one web action, inputs from .env, adobe auth, final inputs, limits.
+      order-sync:
+        license: Apache-2.0
+        actions:
+          export-order:
+            function: actions/export-order/index.js
+            runtime: nodejs:20
+            web: 'yes'
+            inputs:
+              LOG_LEVEL: info
+              ERP_API_URL: $ERP_API_URL
+              ERP_API_KEY: $ERP_API_KEY
+            annotations:
+              require-adobe-auth: true
+              final: true
+            limits:
+              timeout: 60000
+              memory: 256

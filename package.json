@@ -1,0 +1,21 @@
+{
+  "name": "app-builder-learning-log",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Code for the MageMinion 'Learn App Builder with me' series: a Magento developer learning Adobe App Builder in public.",
+  "license": "Apache-2.0",
+  "scripts": {
+    "test": "jest"
+  },
+  "dependencies": {
+    "@adobe/aio-sdk": "^6.0.0",
+    "@adobe/aio-lib-state": "^5.4.0",
+    "@adobe/aio-lib-files": "^4.1.4"
+  },
+  "devDependencies": {
+    "jest": "^30.5.2"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}

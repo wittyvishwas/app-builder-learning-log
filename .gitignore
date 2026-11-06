@@ -1,0 +1,6 @@
+# Runtime credentials and workspace binding: never commit (Ep 1)
+.env
+.aio
+node_modules/
+dist/
+coverage/
