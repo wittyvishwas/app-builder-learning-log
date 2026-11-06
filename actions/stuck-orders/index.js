@@ -14,7 +14,7 @@ const PAGE_SIZE = 50
 const safe = v => String(v).replace(/[^a-zA-Z0-9-_.]/g, '_')
 
 // Oldest first, so the orders stuck longest are alerted first; with more than PAGE_SIZE stuck
-// orders the rest follow on later runs because alerted ones are filtered out in newOnly().
+// orders the rest follow on later runs because alerted ones are filtered out in notAlertedYet().
 function stuckOrdersQuery (params) {
   const cutoff = new Date(Date.now() - Number(params.STUCK_AFTER_MINUTES) * 60000)
     .toISOString().slice(0, 19).replace('T', ' ')
