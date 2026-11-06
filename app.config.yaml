@@ -20,3 +20,26 @@ application:
             limits:
               timeout: 60000
               memory: 256
+      # Ep 3: a scheduled job. Not a web action: nothing outside should call it.
+      ops:
+        actions:
+          stuck-orders:
+            function: actions/stuck-orders/index.js
+            runtime: nodejs:20
+            inputs:
+              LOG_LEVEL: info
+              COMMERCE_BASE_URL: $COMMERCE_BASE_URL
+              COMMERCE_TOKEN: $COMMERCE_TOKEN
+              ALERT_WEBHOOK_URL: $ALERT_WEBHOOK_URL
+              STUCK_AFTER_MINUTES: 30
+            annotations:
+              final: true
+        triggers:
+          every15Minutes:
+            feed: /whisk.system/alarms/alarm
+            inputs:
+              cron: '*/15 * * * *'
+        rules:
+          stuckOrdersSchedule:
+            trigger: every15Minutes
+            action: stuck-orders
