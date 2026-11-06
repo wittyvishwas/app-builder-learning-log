@@ -17,6 +17,7 @@ git checkout ep3-cron-state-files
 | `ep5-log-forwarding` | [Ep 5: forward your action logs to New Relic](https://mageminion.com/app-builder-ep5-log-forwarding-new-relic/) | No new code: log forwarding is workspace configuration. The README section below lists the commands |
 | `ep6-commerce-events` | [Ep 6: replace an observer with a Commerce event](https://mageminion.com/app-builder-ep6-commerce-events/) | `events/order-placed`: handles `observer.sales_order_place_after` from I/O Events with only `increment_id` and `grand_total`, skips an order already in `export_runs` as `sent`, sends it to the ERP (Idempotency-Key = order number), records the `sent` row, and answers 500 on failure so I/O Events retries |
 | `ep7-webhooks` | [Ep 7: replace a plugin with a webhook](https://mageminion.com/app-builder-ep7-webhooks/) | `webhooks/cart-check`: a web action with `raw-http: true` that verifies Commerce's `x-adobe-commerce-webhook-signature` over the base64 body, then answers `success`, or `exception` with a message for a SKU in `RESTRICTED_SKUS`; a missing or invalid signature is refused. Plus `commerce/webhooks.xml` |
+| `ep8-api-mesh` | [Ep 8: API Mesh, one endpoint, and the truth about its cache](https://mageminion.com/app-builder-ep8-api-mesh/) | `mesh/mesh.json`: Commerce GraphQL and a REST reviews API behind one endpoint, joined with `keyField`/`keysArg`, mesh cache on. Endpoints are placeholders |
 | `main` | Beyond Ep 1: order sync to an ERP | `export-order` grown into an event-driven integration (below), plus fixes to `stuck-orders` from a code review. Not in a published episode yet |
 | `day-NN` | Developer log | One tag per session, with its write-up in [`log/`](log/) |
 
@@ -179,11 +180,34 @@ RESTRICTED_SKUS=RESTRICTED-1,RESTRICTED-2
 
 Not verified against a real Commerce yet: the tests sign bodies with their own key pair.
 
+## API Mesh (Ep 8)
+
+`mesh/mesh.json` puts Commerce GraphQL and a REST reviews API behind one endpoint. A mesh belongs to one workspace, so select yours first with `aio console workspace select`. Replace the `example.com` endpoints, then:
+
+```bash
+aio plugins:install @adobe/aio-cli-plugin-api-mesh
+aio api-mesh:create mesh/mesh.json
+aio api-mesh:status
+aio api-mesh:describe
+```
+
+The `responseSchema` path is relative to `mesh.json`, so `reviews-response-schema.json` must stay next to it. The REST handler is spelled `JsonSchema`; `jsonSchema` is rejected.
+
+The cache, as the post sets it out:
+
+- **Off by default.** `"cache": true` in `responseConfig` turns it on. If you bring your own CDN, set `"cache": false` so responses aren't cached twice.
+- **The response is the unit.** Query-level caching isn't supported. A response gets one set of `Cache-Control` headers and is cached as a whole.
+- **Sources vote, the lowest wins.** Conflicting `max-age`, `s-maxage`, `stale-while-revalidate`, `stale-if-error` and similar resolve to the lowest value.
+- **`no-store` beats everything.** If any source says `no-store`, the whole response is `no-store`.
+- **Mesh config can't override a source.** A default `Cache-Control` in the mesh config only applies to sources that send none. Change the source to change its lifetime.
+- **GET requests are limited to 2,048 characters.**
+- **Purge after a mesh change:** `aio api-mesh:cache:purge -a`, or your CDN's purge.
+
 ## What's verified
 
 Each piece is marked by how far it has been proven:
 
-- **Unit-tested:** `npm test` (92 tests, run in CI on Node 20 and 24) runs the actions with Commerce, the ERP, the alert webhook, State, Files and Database Storage faked. The database fake (`fakeDb` in `test/helpers.js`) supports equality, `$ne`, `$in`, `$lt`/`$lte`/`$gt`/`$gte`, `find().sort().limit().toArray()`, `updateOne` with `$set` and upsert, unique indexes, and throws `DbError`; it proves our logic, not the real service. The State fake behaves like aio-lib-state 5.4 where it matters: `ifNotExists`, TTLs, and a paged `list()` that can return a key twice. That proves the mapping, retries, skipping a redelivered event, the retry queue, locks, time budget, dead-lettering without personal data, the stuck-order query, alert-then-remember, the report, and the webhook's signature check (real RSA keys, a tampered body, a base64 body, an escaped-newline PEM, a missing key answering 500). It doesn't prove a deployment.
+- **Unit-tested:** `npm test` (97 tests, run in CI on Node 20 and 24) runs the actions with Commerce, the ERP, the alert webhook, State, Files and Database Storage faked. The database fake (`fakeDb` in `test/helpers.js`) supports equality, `$ne`, `$in`, `$lt`/`$lte`/`$gt`/`$gte`, `find().sort().limit().toArray()`, `updateOne` with `$set` and upsert, unique indexes, and throws `DbError`; it proves our logic, not the real service. The State fake behaves like aio-lib-state 5.4 where it matters: `ifNotExists`, TTLs, and a paged `list()` that can return a key twice. That proves the mapping, retries, skipping a redelivered event, the retry queue, locks, time budget, dead-lettering without personal data, the stuck-order query, alert-then-remember, the report, and the webhook's signature check (real RSA keys, a tampered body, a base64 body, an escaped-newline PEM, a missing key answering 500). It doesn't prove a deployment.
 - **Verified on Stage:** nothing yet. The developer log marks code as verified once it has run in a real workspace.
 
 ## Run it
@@ -214,6 +238,7 @@ actions/
   cart-check/index.js           # Ep 7: webhook that verifies Commerce's signature and blocks restricted SKUs
 commerce/
   webhooks.xml                  # Ep 7: webhook declaration (PaaS module etc/; SaaS: System > Webhooks)
+mesh/                           # Ep 8: mesh config and the reviews response schema
 scripts/
   post-deploy-db-setup.js       # Ep 4: post-app-deploy hook, creates the indexes
 app.config.yaml                 # actions, two alarm triggers and their rules, database, post-deploy hook
