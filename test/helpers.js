@@ -36,7 +36,6 @@ const OPS = {
   $gt: (v, x) => v !== undefined && v !== null && v > x,
   $gte: (v, x) => v !== undefined && v !== null && v >= x
 }
-// Mongo-style equality: null also matches a missing field.
 // Update operators the fake knows; anything else throws instead of being silently ignored.
 function applyUpdate (doc, update, inserting) {
   for (const op of Object.keys(update)) {
@@ -46,6 +45,7 @@ function applyUpdate (doc, update, inserting) {
   if (inserting) Object.assign(doc, update.$setOnInsert)
   return doc
 }
+// Mongo-style equality: null also matches a missing field.
 const same = (v, x) => (x === null ? v === null || v === undefined : v === x)
 const isOps = c => c && typeof c === 'object' && !Array.isArray(c) && Object.keys(c).some(k => k.startsWith('$'))
 

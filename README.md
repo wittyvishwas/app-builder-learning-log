@@ -14,6 +14,7 @@ git checkout ep3-cron-state-files
 | — | [Ep 2: start from a boilerplate](https://mageminion.com/app-builder-ep2-first-action/) | Ep 2 starts a real integration from Adobe's [commerce-integration-starter-kit](https://github.com/adobe/commerce-integration-starter-kit). Clone that kit; it isn't copied here |
 | `ep3-cron-state-files` | [Ep 3: cron, config and custom tables](https://mageminion.com/app-builder-ep3-cron-state-files/) | `stuck-orders`: an alarm trigger and rule every 15 minutes, a Commerce REST query for orders stuck in `pending_payment`, one alert per order (State with a 7-day TTL), a State lock against overlapping runs, and an optional daily CSV report in Files (`SAVE_REPORT: true`) |
 | `ep4-database-storage` | [Ep 4: Database Storage, when State isn't enough](https://mageminion.com/app-builder-ep4-database-storage/) | `sync-log`: an action that writes one row per export attempt to a collection and returns the latest failure for a SKU. The `database` block in `app.config.yaml` (auto-provisioned, region `emea`), `include-ims-credentials: true`, and a `post-app-deploy` hook that creates the indexes. `test/helpers.js` gains `fakeDb`, an in-memory aio-lib-db that later episodes reuse |
+| `ep5-log-forwarding` | [Ep 5: forward your action logs to New Relic](https://mageminion.com/app-builder-ep5-log-forwarding-new-relic/) | No new code: log forwarding is workspace configuration. The README section below lists the commands; the actions' log lines follow the post's rules |
 | `main` | Beyond Ep 1: order sync to an ERP | `export-order` grown into an event-driven integration (below), plus fixes to `stuck-orders` from a code review. Not in a published episode yet |
 | `day-NN` | Developer log | One tag per session, with its write-up in [`log/`](log/) |
 
@@ -94,6 +95,40 @@ Keep IDs, statuses and timestamps; look customer and order details up in Commerc
 | `stuck_alerts` | Ep 9 | `order`, `status`, `created_at`, `at`, `handled` (boolean), `handledAt` (optional) | unique `{ order: 1 }`, `{ handled: 1, at: -1 }` |
 
 The Ep 6 to Ep 10 rows are planned and not in the code yet; the indexes for them are already created by the hook.
+
+## Log forwarding to New Relic (Ep 5)
+
+Forwarding is set per workspace. Run this once for Stage and once for Production, each after `aio app use`:
+
+```bash
+aio app config set log-forwarding
+? select log forwarding destination: New Relic
+? base URI: https://log-api.eu.newrelic.com/log/v1
+? license key: <your INGEST - LICENSE key>
+```
+
+The base URI depends on where you log in to New Relic. US (`https://one.newrelic.com/`): `https://log-api.newrelic.com/log/v1`. EU (`https://one.eu.newrelic.com/`): `https://log-api.eu.newrelic.com/log/v1`. Include the `https://`. A wrong region doesn't fail loudly; your logs just never arrive.
+
+The license key is stored in `.env`, which stays out of git. Settings apply on the next deploy, and `get` shows the destination and base URI, never the key:
+
+```bash
+aio app deploy
+aio app config get log-forwarding
+```
+
+Don't use `--no-actions` or `--no-log-forwarding-update` for this, or the forwarding change isn't applied.
+
+Run an action that logs, then open **Logs** in New Relic and look for the new lines:
+
+```bash
+aio rt action invoke ops/stuck-orders --result
+```
+
+Use `LOG_LEVEL: info` and `debug` only while you investigate. Forwarding sends what you write, and an action's logs are cut off after 10 MB per activation.
+
+If nothing arrives, run `aio app config get log-forwarding errors`. It shows the most recent 10 forwarding errors, from up to 30 days back. The usual causes are the wrong regional base URI, a key that isn't an ingest license key, or a deploy that skipped the forwarding update.
+
+Once logs leave the terminal, more people read them. Log one line per significant step, with the order number or SKU in it. Never log tokens, API keys or customer personal data. Log errors with the reason and the next action ("will retry in 15 minutes"), not just a stack trace.
 
 ## What's verified
 
