@@ -32,6 +32,7 @@ application:
               COMMERCE_TOKEN: $COMMERCE_TOKEN
               ALERT_WEBHOOK_URL: $ALERT_WEBHOOK_URL
               STUCK_AFTER_MINUTES: 30
+              SAVE_REPORT: false
             annotations:
               final: true
         triggers:

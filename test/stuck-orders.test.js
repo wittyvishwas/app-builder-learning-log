@@ -10,11 +10,24 @@ jest.mock('@adobe/aio-lib-state', () => ({
     delete: async (k) => { mockStore.delete(k); return k }
   })
 }))
+const mockFiles = new Map()
+const mockFilesFail = { on: false }
+jest.mock('@adobe/aio-lib-files', () => ({
+  init: async () => ({
+    list: async (p) => (mockFiles.has(p) ? [{ name: p }] : []),
+    read: async (p) => Buffer.from(mockFiles.get(p)),
+    write: async (p, c) => {
+      if (mockFilesFail.on) throw new Error('files unavailable')
+      mockFiles.set(p, String(c))
+      return String(c).length
+    }
+  })
+}))
 jest.mock('@adobe/aio-sdk', () => ({
-  Core: { Logger: () => ({ info: () => {}, error: () => {}, debug: () => {} }) }
+  Core: { Logger: () => ({ info: () => {}, warn: () => {}, error: () => {}, debug: () => {} }) }
 }))
 
-const { main } = require('../actions/stuck-orders')
+const { main, toCsv } = require('../actions/stuck-orders')
 
 const params = {
   COMMERCE_BASE_URL: 'https://shop.example/',
@@ -36,7 +49,7 @@ function mockFetch (items, status = 200) {
   })
 }
 
-beforeEach(() => mockStore.clear())
+beforeEach(() => { mockStore.clear(); mockFiles.clear(); mockFilesFail.on = false })
 
 test('asks Commerce for pending_payment orders older than the cut-off, with a bearer token', async () => {
   mockFetch([])
@@ -77,4 +90,37 @@ test('returns 500 and releases the lock when Commerce fails', async () => {
   const res = await main(params)
   expect(res).toEqual({ statusCode: 500, body: { error: 'Commerce returned 401' } })
   expect(mockStore.has('lock-stuck-orders')).toBe(false)
+})
+
+const today = () => `reports/stuck-orders/${new Date().toISOString().slice(0, 10)}.csv`
+
+test('writes no report unless SAVE_REPORT is true', async () => {
+  mockFetch(orders)
+  await main(params)
+  expect(mockFiles.size).toBe(0)
+})
+
+test('keeps one CSV per day in Files, newest rows first, header once', async () => {
+  mockFetch(orders.slice(0, 1))
+  await main({ ...params, SAVE_REPORT: 'true' })
+  mockFetch(orders)
+  await main({ ...params, SAVE_REPORT: true })
+  expect(mockFiles.get(today())).toBe(
+    'increment_id,grand_total,created_at\n' +
+    '"000000102","120","2027-01-07 08:10:00"\n' +
+    '"000000101","49.5","2027-01-07 08:00:00"\n'
+  )
+})
+
+test('a Files failure is logged and does not block or repeat the alert', async () => {
+  mockFilesFail.on = true
+  mockFetch(orders)
+  const res = await main({ ...params, SAVE_REPORT: 'true' })
+  expect(res).toEqual({ statusCode: 200, body: { alerted: 2 } })
+  expect(global.fetch.mock.calls.some(([u]) => u === params.ALERT_WEBHOOK_URL)).toBe(true)
+})
+
+test('CSV cells are quoted and embedded quotes doubled', () => {
+  expect(toCsv([{ increment_id: 'A"1', grand_total: 5, created_at: 'x' }]))
+    .toBe('increment_id,grand_total,created_at\n"A""1","5","x"\n')
 })
