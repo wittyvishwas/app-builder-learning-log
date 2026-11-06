@@ -2,24 +2,46 @@ application:
   actions: actions
   runtimeManifest:
     packages:
-      # Ep 1: one web action, inputs from .env, adobe auth, final inputs, limits.
+      # Order sync to an ERP. Ep 1 introduced export-order as a web action; it is now invoked by
+      # Adobe I/O Events (observer.sales_order_place_after), so it is not public and needs no web URL.
       order-sync:
         license: Apache-2.0
         actions:
           export-order:
             function: actions/export-order/index.js
             runtime: nodejs:20
-            web: 'yes'
+            web: 'no'
             inputs:
               LOG_LEVEL: info
               ERP_API_URL: $ERP_API_URL
               ERP_API_KEY: $ERP_API_KEY
             annotations:
-              require-adobe-auth: true
               final: true
             limits:
               timeout: 60000
               memory: 256
+          export-order-retry:
+            function: actions/export-order-retry/index.js
+            runtime: nodejs:20
+            inputs:
+              LOG_LEVEL: info
+              ERP_API_URL: $ERP_API_URL
+              ERP_API_KEY: $ERP_API_KEY
+              MAX_PER_RUN: 50
+            annotations:
+              final: true
+            limits:
+              timeout: 300000
+              memory: 256
+        triggers:
+          every10Minutes:
+            feed: /whisk.system/alarms/alarm
+            inputs:
+              cron: '*/10 * * * *'
+        rules:
+          orderSyncRetrySchedule:
+            trigger: every10Minutes
+            action: export-order-retry
       # Ep 3: a scheduled job. Not a web action: nothing outside should call it.
       ops:
         actions:
