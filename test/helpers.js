@@ -1,13 +1,24 @@
 /* Shared fakes: an in-memory State with list() support and a scripted fetch. */
-function fakeState (store) {
+function fakeState (store, { pages = 1, duplicate = false, ttls = new Map() } = {}) {
   return {
     get: async k => (store.has(k) ? { value: store.get(k) } : undefined),
-    put: async (k, v) => { store.set(k, v); return k },
-    delete: async k => { store.delete(k); return k },
+    // Like aio-lib-state 5.4: with ifNotExists, an existing key is left alone and put resolves to null.
+    put: async (k, v, opts = {}) => {
+      if (opts.ifNotExists && store.has(k)) return null
+      store.set(k, v)
+      ttls.set(k, opts.ttl)
+      return k
+    },
+    delete: async k => { const had = store.delete(k); return had ? k : null },
+    // Like the real cursor scan: keys come in pages, and (with duplicate) a key can show up twice.
     list: ({ match }) => {
       const re = new RegExp('^' + match.replace(/[.]/g, '\\.').replace(/\*/g, '.*') + '$')
       const keys = [...store.keys()].filter(k => re.test(k))
-      return (async function * () { yield { keys } })()
+      const size = Math.max(1, Math.ceil(keys.length / pages))
+      return (async function * () {
+        for (let i = 0; i < keys.length; i += size) yield { keys: keys.slice(i, i + size) }
+        if (duplicate && keys.length) yield { keys: [keys[0]] }
+      })()
     }
   }
 }

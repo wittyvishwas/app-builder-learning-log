@@ -31,6 +31,8 @@ application:
             annotations:
               final: true
             limits:
+              # Keep this below the 10-minute alarm period, so scheduled runs never overlap;
+              # a State lock covers a manual invoke during a scheduled run.
               timeout: 300000
               memory: 256
         triggers:

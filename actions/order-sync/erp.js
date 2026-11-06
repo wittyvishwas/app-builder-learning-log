@@ -34,9 +34,13 @@ async function sendOnce (erpOrder, { url, apiKey, timeoutMs }) {
   // The ERP already has this order (an earlier attempt got through): that's success.
   if (res.status === 409) return { status: 409, duplicate: true }
   const transient = res.status === 429 || res.status >= 500
+  // The body often echoes the request (email, address), so it stays out of the message that is
+  // logged and stored; callers may log it at debug level.
   let detail = ''
   try { detail = (await res.text()).slice(0, 300) } catch (e) {}
-  throw new ErpError(`ERP returned ${res.status}${detail ? `: ${detail}` : ''}`, { status: res.status, transient })
+  const err = new ErpError(`ERP returned ${res.status}`, { status: res.status, transient })
+  err.detail = detail
+  throw err
 }
 
 async function sendOrder (erpOrder, { url, apiKey, attempts = 3, baseDelayMs = 500, timeoutMs = 10000 } = {}) {

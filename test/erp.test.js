@@ -35,3 +35,10 @@ test('does not retry a 4xx: it is permanent', async () => {
   await expect(sendOrder(erpOrder, erp)).rejects.toMatchObject({ status: 422, transient: false })
   expect(global.fetch).toHaveBeenCalledTimes(1)
 })
+
+test('the error message carries the status, not the response body', async () => {
+  global.fetch = jest.fn(async () => ({ ok: false, status: 422, text: async () => 'bad email jane@example.com' }))
+  const err = await sendOrder(erpOrder, erp).catch(e => e)
+  expect(err.message).toBe('ERP returned 422')
+  expect(err.detail).toContain('jane@example.com')
+})

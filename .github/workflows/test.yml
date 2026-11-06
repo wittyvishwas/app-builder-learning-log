@@ -5,11 +5,17 @@ on:
 jobs:
   unit:
     runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        # 20 is what the actions deploy as (runtime: nodejs:20); 24 is what the lock file was made with.
+        node: [20, 24]
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
-          node-version: 24
+          node-version: ${{ matrix.node }}
           cache: npm
+      # The lock file is npm 11; Node 20 ships npm 10, which reads it differently.
+      - run: npm install -g npm@11
       - run: npm ci
       - run: npm test

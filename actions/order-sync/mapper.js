@@ -52,7 +52,7 @@ function toErpOrder (order) {
       email: order.customer_email || '',
       name: [order.customer_firstname, order.customer_lastname].filter(Boolean).join(' ')
     },
-    billingAddress: address(order.billing_address),
+    billingAddress: address(order.billing_address || (order.addresses || []).find(a => a.address_type === 'billing')),
     shippingAddress: address(shipping),
     lines: lines(order.items)
   }

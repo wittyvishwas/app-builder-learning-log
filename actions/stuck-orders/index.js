@@ -9,42 +9,70 @@ const { Core } = require('@adobe/aio-sdk')
 const stateLib = require('@adobe/aio-lib-state')
 const filesLib = require('@adobe/aio-lib-files')
 
-async function findStuckOrders (params) {
+const PAGE_SIZE = 50
+// State keys allow letters, digits, - _ and . only (aio-lib-state REGEX_PATTERN_STORE_KEY).
+const safe = v => String(v).replace(/[^a-zA-Z0-9-_.]/g, '_')
+
+// Oldest first, so the orders stuck longest are alerted first; with more than PAGE_SIZE stuck
+// orders the rest follow on later runs because alerted ones are filtered out in newOnly().
+function stuckOrdersQuery (params) {
   const cutoff = new Date(Date.now() - Number(params.STUCK_AFTER_MINUTES) * 60000)
     .toISOString().slice(0, 19).replace('T', ' ')
-  const q = new URLSearchParams({
+  return new URLSearchParams({
     'searchCriteria[filter_groups][0][filters][0][field]': 'status',
     'searchCriteria[filter_groups][0][filters][0][value]': 'pending_payment',
     'searchCriteria[filter_groups][1][filters][0][field]': 'created_at',
     'searchCriteria[filter_groups][1][filters][0][value]': cutoff,
     'searchCriteria[filter_groups][1][filters][0][condition_type]': 'lt',
-    'searchCriteria[pageSize]': '50',
+    'searchCriteria[sortOrders][0][field]': 'created_at',
+    'searchCriteria[sortOrders][0][direction]': 'ASC',
+    'searchCriteria[pageSize]': String(PAGE_SIZE),
     fields: 'items[increment_id,grand_total,created_at]'
   })
-  const res = await fetch(`${params.COMMERCE_BASE_URL}rest/V1/orders?${q}`, {
+}
+
+async function findStuckOrders (params) {
+  const base = String(params.COMMERCE_BASE_URL).replace(/\/+$/, '')
+  const res = await fetch(`${base}/rest/V1/orders?${stuckOrdersQuery(params)}`, {
     headers: { Authorization: `Bearer ${params.COMMERCE_TOKEN}` }
   })
   if (!res.ok) throw new Error(`Commerce returned ${res.status}`)
   return (await res.json()).items || []
 }
 
-async function newOnly (orders) {
-  const state = await stateLib.init()
+// Orders not alerted yet. Nothing is written here: an order is remembered only after the
+// alert went out (see markAlerted), so a failing webhook doesn't silently swallow orders.
+async function notAlertedYet (state, orders) {
   const fresh = []
   for (const o of orders) {
-    const key = `stuck-${o.increment_id}`
-    if (await state.get(key)) continue
-    await state.put(key, '1', { ttl: 7 * 24 * 3600 })
-    fresh.push(o)
+    if (!(await state.get(`stuck-${safe(o.increment_id)}`))) fresh.push(o)
   }
   return fresh
 }
 
-async function withLock (name, seconds, fn) {
-  const state = await stateLib.init()
-  if (await state.get(`lock-${name}`)) return { skipped: true }
-  await state.put(`lock-${name}`, String(Date.now()), { ttl: seconds })
-  try { return await fn() } finally { await state.delete(`lock-${name}`) }
+async function markAlerted (state, orders) {
+  for (const o of orders) {
+    await state.put(`stuck-${safe(o.increment_id)}`, '1', { ttl: 7 * 24 * 3600 })
+  }
+}
+
+async function sendAlert (webhookUrl, orders) {
+  const lines = orders.map(o => `#${o.increment_id} (${o.grand_total}) since ${o.created_at}`)
+  const res = await fetch(webhookUrl, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ text: `Orders stuck in pending_payment:\n${lines.join('\n')}` })
+  })
+  if (!res.ok) throw new Error(`alert webhook returned ${res.status}`)
+}
+
+// One atomic put: `ifNotExists` (aio-lib-state >= 5.4) resolves to null when the key is already
+// there, so two runs can't both believe they got the lock. The TTL frees a lock left by a crash.
+async function withLock (state, name, seconds, fn) {
+  const key = `lock-${name}`
+  const got = await state.put(key, String(Date.now()), { ttl: seconds, ifNotExists: true })
+  if (got === null) return { skipped: true }
+  try { return await fn() } finally { await state.delete(key) }
 }
 
 function toCsv (orders) {
@@ -60,23 +88,19 @@ async function saveReport (orders) {
   if ((await files.list(path)).length) {
     previous = (await files.read(path)).toString().split('\n').slice(1).join('\n')
   }
-  const csv = toCsv(orders)
-  await files.write(path, csv + previous)
+  await files.write(path, toCsv(orders) + previous)
   return path
 }
 
 async function main (params) {
   const logger = Core.Logger('stuck-orders', { level: params.LOG_LEVEL || 'info' })
   try {
-    return await withLock('stuck-orders', 600, async () => {
-      const fresh = await newOnly(await findStuckOrders(params))
+    const state = await stateLib.init()
+    return await withLock(state, 'stuck-orders', 600, async () => {
+      const fresh = await notAlertedYet(state, await findStuckOrders(params))
       if (fresh.length) {
-        const lines = fresh.map(o => `#${o.increment_id} (${o.grand_total}) since ${o.created_at}`)
-        await fetch(params.ALERT_WEBHOOK_URL, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ text: `Orders stuck in pending_payment:\n${lines.join('\n')}` })
-        })
+        await sendAlert(params.ALERT_WEBHOOK_URL, fresh)
+        await markAlerted(state, fresh)
       }
       // The report is a record, not the alert: a Files failure is logged and never blocks or repeats the alert.
       if (fresh.length && String(params.SAVE_REPORT) === 'true') {
@@ -95,4 +119,4 @@ async function main (params) {
   }
 }
 
-module.exports = { main, findStuckOrders, newOnly, withLock, toCsv, saveReport }
+module.exports = { main, toCsv }

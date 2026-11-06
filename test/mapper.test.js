@@ -30,3 +30,11 @@ test('takes the shipping address from extension attributes when present', () => 
 test('refuses an order without increment_id', () => {
   expect(() => toErpOrder({ grand_total: 1 })).toThrow('order has no increment_id')
 })
+
+test('falls back to the addresses array for billing and shipping', () => {
+  const { billing_address: _b, ...rest } = order
+  const o = { ...rest, addresses: [{ address_type: 'billing', firstname: 'Bill', city: 'Munich' }, { address_type: 'shipping', firstname: 'Ship', city: 'Bonn' }] }
+  const e = toErpOrder(o)
+  expect(e.billingAddress).toMatchObject({ name: 'Bill', city: 'Munich' })
+  expect(e.shippingAddress).toMatchObject({ name: 'Ship', city: 'Bonn' })
+})
