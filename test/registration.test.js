@@ -35,12 +35,15 @@ test('app.config.yaml includes the v1 extension point', () => {
 
 test('the registration and data actions are web actions behind require-adobe-auth; data actions get IMS credentials', () => {
   const block = name => ext.split(new RegExp(`^ {8}${name}:\\n`, 'm'))[1].split(/^ {8}\S|^ {4}\S/m)[0]
-  for (const name of ['registration', 'list-alerts', 'mark-handled']) {
+  for (const name of ['registration', 'list-alerts', 'mark-handled', 'list-deliveries', 'retry-delivery']) {
     expect(block(name)).toContain("web: 'yes'")
     expect(block(name)).toContain('require-adobe-auth: true')
     expect(block(name)).toContain('final: true')
   }
-  for (const name of ['list-alerts', 'mark-handled']) expect(block(name)).toContain('include-ims-credentials: true')
+  for (const name of ['list-alerts', 'mark-handled', 'list-deliveries', 'retry-delivery']) expect(block(name)).toContain('include-ims-credentials: true')
+  // A dead row keeps no order, so Retry re-fetches it from Commerce and needs the same inputs as stuck-orders.
+  expect(block('retry-delivery')).toContain('COMMERCE_BASE_URL: $COMMERCE_BASE_URL')
+  expect(block('retry-delivery')).toContain('COMMERCE_TOKEN: $COMMERCE_TOKEN')
 })
 
 test('stuck-orders gets IMS credentials so it can write stuck_alerts', () => {

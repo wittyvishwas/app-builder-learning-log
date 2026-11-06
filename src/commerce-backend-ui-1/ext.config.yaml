@@ -45,3 +45,26 @@ runtimeManifest:
             require-adobe-auth: true
             include-ims-credentials: true
             final: true
+        list-deliveries:
+          function: actions/list-deliveries/index.js
+          web: 'yes'
+          runtime: 'nodejs:20'
+          inputs:
+            LOG_LEVEL: info
+          annotations:
+            require-adobe-auth: true
+            include-ims-credentials: true
+            final: true
+        retry-delivery:
+          function: actions/retry-delivery/index.js
+          web: 'yes'
+          runtime: 'nodejs:20'
+          inputs:
+            LOG_LEVEL: info
+            # A dead row keeps no order, so Retry fetches it again from Commerce (same inputs as ops/stuck-orders).
+            COMMERCE_BASE_URL: $COMMERCE_BASE_URL
+            COMMERCE_TOKEN: $COMMERCE_TOKEN
+          annotations:
+            require-adobe-auth: true
+            include-ims-credentials: true
+            final: true
