@@ -13,6 +13,7 @@ const { Core } = require('@adobe/aio-sdk')
 const libDb = require('@adobe/aio-lib-db')
 const { sendOrder } = require('../order-sync/erp')
 
+// Kept in this file on purpose: it is one small helper. The post's tip about a file of its own applies once it grows.
 // Send the minimal order the Ep 6 subscription carries. erp.js reads the Idempotency-Key from
 // `orderNumber`, so that field is added next to the two subscribed fields.
 async function sendToErp (params, order) {
@@ -47,7 +48,8 @@ async function main (params) {
   } catch (e) {
     // Message only: never the whole error or an ERP response body.
     logger.error(`order ${order.increment_id}: ${e.message}`)
-    // A 500 makes I/O Events deliver the event again.
+    // 500 so a retry is possible (as in the post). Whether I/O Events retries a Runtime action on its
+    // returned statusCode is not verified on Stage yet. A permanent ERP error (400/422) also lands here.
     return { statusCode: 500, body: { error: e.message } }
   } finally {
     if (client) await client.close()

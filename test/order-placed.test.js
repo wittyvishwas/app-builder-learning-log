@@ -130,6 +130,8 @@ test('a token failure answers 500 and calls neither database nor ERP', async () 
   const res = await main({ ...base, ...event })
   expect(res).toEqual({ statusCode: 500, body: { error: 'ims down' } })
   expect(mockDb.calls.init).toHaveLength(0)
+  expect(mockDb.calls.connect).toBe(0)
+  expect(mockDb.calls.close).toBe(0)
   expect(global.fetch).not.toHaveBeenCalled()
 })
 
@@ -145,5 +147,41 @@ test('a failed insert after a successful send answers 500 (the ERP dedups the re
   mockDb = fakeDb(new Map(), { failOn: ['insertOne'] })
   const res = await main({ ...base, ...event })
   expect(res.statusCode).toBe(500)
+  expect(global.fetch).toHaveBeenCalledTimes(1)
   expect(mockDb.calls.close).toBe(1)
+})
+
+test('error logs carry only the message: no stack, no object, no ERP response body', async () => {
+  const error = jest.fn()
+  const sdk = require('@adobe/aio-sdk')
+  const spy = jest.spyOn(sdk.Core, 'Logger').mockReturnValue({ info: () => {}, warn: () => {}, error, debug: () => {} })
+  const body = 'ECHOED-CUSTOMER-JANE'
+  global.fetch = jest.fn(async () => ({ ok: false, status: 400, text: async () => body }))
+  mockDb = fakeDb()
+  const res = await main({ ...base, ...event })
+  spy.mockRestore()
+  expect(res.statusCode).toBe(500)
+  expect(error).toHaveBeenCalledTimes(1)
+  const [arg, ...rest] = error.mock.calls[0]
+  expect(rest).toHaveLength(0)
+  expect(typeof arg).toBe('string')
+  expect(arg).toBe('order 000000201: ERP returned 400')
+  expect(arg).not.toMatch(/\n\s+at /)
+  expect(JSON.stringify(res)).not.toContain(body)
+})
+
+test('a transient 503 then a success through erp.js writes exactly one sent row', async () => {
+  jest.useFakeTimers()
+  try {
+    global.fetch = scriptedFetch([503, 201])
+    mockDb = fakeDb()
+    const promise = main({ ...base, ...event })
+    await jest.advanceTimersByTimeAsync(1000)
+    const res = await promise
+    expect(res.body).toEqual({ sent: '000000201' })
+    expect(global.fetch).toHaveBeenCalledTimes(2)
+    expect(mockDb.data.get('export_runs')).toHaveLength(1)
+  } finally {
+    jest.useRealTimers()
+  }
 })
