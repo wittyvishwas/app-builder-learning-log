@@ -5,7 +5,8 @@
  *                                                                  transient failure; the scheduled action resends it
  *   { order, status: 'dead', attempts, lastError, httpStatus, lines, totals, at }
  *                                                                  permanent failure or retries exhausted, for a human
- * updateOne with upsert by { order } moves a row between the three, so an order never has two rows. The
+ * updateOne with upsert by { order } moves a row between the three, so normally an order has one row (two
+ * writers racing, or Ep 6's insertOne, can leave two; markDone and the retry run settle them). The
  * sent row has the same shape Ep 6's order-placed writes, so both actions share the de-dup check
  * findOne({ order, status: 'sent' }).
  *
@@ -42,18 +43,30 @@ async function connect (params) {
 
   const store = {
     isDone: async n => Boolean(await runs.findOne({ order: n, status: 'sent' })),
+    // Every row for the order (a stray retry row next to a sent one, Ep 6's insertOne) becomes sent, and the
+    // mapped order and schedule are cleared; a new sent row, in Ep 6's shape, only when there was none.
     async markDone (n) {
-      await runs.updateOne({ order: n }, { $set: { status: 'sent', at: now(), ...await leftovers(n) } }, { upsert: true })
+      const res = await runs.updateMany({ order: n }, { $set: { status: 'sent', at: now(), mapped: null, nextAt: null } })
+      if (!res || !res.matchedCount) await runs.insertOne({ order: n, status: 'sent', at: now() })
     },
+    // A retry row left next to a sent row (a race): settle it so it is not picked up again and holds no order.
+    settleRetry: n => runs.updateMany({ order: n, status: 'retry' }, { $set: { status: 'sent', mapped: null, nextAt: null } }),
+    // putRetry and putDead never touch a sent row: they re-check right before writing and skip (return false)
+    // if the order is sent, and their filter excludes sent rows. A tiny window remains between the check and
+    // the write; a duplicate POST in it is covered by the ERP's Idempotency-Key.
     async putRetry (n, { mapped, attempts, lastError, httpStatus }) {
+      if (await store.isDone(n)) return false
       // nextAt is now: the 10-minute alarm is the backoff, so a queued order is due at the next run.
       const at = now()
-      await runs.updateOne({ order: n }, { $set: { status: 'retry', attempts, nextAt: at, lastError, httpStatus, mapped, at } }, { upsert: true })
+      await runs.updateOne({ order: n, status: { $ne: 'sent' } }, { $set: { status: 'retry', attempts, nextAt: at, lastError, httpStatus, mapped, at } }, { upsert: true })
+      return true
     },
     async putDead (n, { lines, totals, attempts, lastError, httpStatus }) {
-      await runs.updateOne({ order: n }, {
+      if (await store.isDone(n)) return false
+      await runs.updateOne({ order: n, status: { $ne: 'sent' } }, {
         $set: { status: 'dead', attempts, lastError, httpStatus, lines, totals, at: now(), ...await leftovers(n) }
       }, { upsert: true })
+      return true
     },
     // Orders due for a retry, oldest first, at most `limit`; `total` is how many are due in all.
     async dueRetries (limit, at = now()) {

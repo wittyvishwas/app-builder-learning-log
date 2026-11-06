@@ -39,15 +39,30 @@ async function main (params) {
     db = await store.connect(params)
     // Snapshot first: rows written during this run (nextAt is later than `started`) wait for the next one.
     const { rows, total } = await db.store.dueRetries(limit, new Date(started).toISOString())
-    counts.left = total - rows.length
+    counts.left = Math.max(0, total - rows.length)
+    let failed = 0
     for (const [i, row] of rows.entries()) {
       if (Date.now() - started > TIME_BUDGET_MS) {
         counts.left += rows.length - i
         break
       }
-      const r = await exportOrder(row.mapped, { store: db.store, erp, logger, run: row.attempts + 1 })
-      counts[r.outcome]++
+      // Each row on its own: one bad row never stops the run.
+      try {
+        if (!row.mapped || !row.mapped.orderNumber) {
+          await db.store.putDead(row.order, { lines: null, totals: null, attempts: row.attempts, lastError: 'cannot resend: no stored order', httpStatus: 0 })
+          logger.error(`order ${row.order}: cannot resend, no stored order`)
+          counts.dead++
+          continue
+        }
+        const r = await exportOrder(row.mapped, { store: db.store, erp, logger, run: row.attempts + 1 })
+        counts[r.outcome]++
+      } catch (e) {
+        failed++
+        logger.error(`order ${row.order}: ${e.message}`)
+      }
     }
+    // Error (so it shows in the activation) only when nothing could be recorded at all.
+    if (failed && failed === rows.length) throw new Error(`could not record any of ${failed} order(s)`)
   } catch (e) {
     // Message only: never the whole error or an ERP response body.
     logger.error(`retry run: ${e.message}`)

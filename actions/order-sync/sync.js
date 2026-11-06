@@ -23,30 +23,41 @@ function deadSummary ({ lines, currency, total, shippingAmount, taxAmount }) {
   return { lines, totals: { currency, total, shippingAmount, taxAmount } }
 }
 
+// A racing delivery got the order through while this one failed: the sent row wins.
+function sentMeanwhile (n, logger) {
+  logger.info(`order ${n}: already exported by another delivery, skipped`)
+  return { orderNumber: n, outcome: 'skipped' }
+}
+
 async function exportOrder (order, { store, erp, logger, run = 1 }) {
   // A retry row holds the already-mapped order; a fresh event holds the Commerce payload.
   const erpOrder = order.orderNumber ? order : toErpOrder(order)
   const n = erpOrder.orderNumber
   if (await store.isDone(n)) {
+    // A retry run that finds the order sent settles its stray retry row, so it is not picked up again.
+    if (run > 1) await store.settleRetry(n)
     logger.info(`order ${n}: already exported, skipped`)
     return { orderNumber: n, outcome: 'skipped' }
   }
+  let res
   try {
-    const res = await sendOrder(erpOrder, erp)
-    await store.markDone(n)
-    logger.info(`order ${n}: exported${res.duplicate ? ' (ERP already had it)' : ''}`)
-    return { orderNumber: n, outcome: 'exported' }
+    res = await sendOrder(erpOrder, erp)
   } catch (e) {
     const meta = { attempts: run, lastError: e.message, httpStatus: e.status || 0 }
     if (e.transient && run < MAX_RUNS) {
-      await store.putRetry(n, { mapped: erpOrder, ...meta })
+      if (!(await store.putRetry(n, { mapped: erpOrder, ...meta }))) return sentMeanwhile(n, logger)
       logger.warn(`order ${n}: queued for retry ${run}/${MAX_RUNS - 1} (${e.message})`)
       return { orderNumber: n, outcome: 'queued' }
     }
-    await store.putDead(n, { ...deadSummary(erpOrder), ...meta })
+    if (!(await store.putDead(n, { ...deadSummary(erpOrder), ...meta }))) return sentMeanwhile(n, logger)
     logger.error(`order ${n}: failed for good after ${run} run(s) (${e.message})`)
     return { orderNumber: n, outcome: 'dead' }
   }
+  // Recording the success is outside the try: a database failure here is not an ERP failure (the handler
+  // answers an error and I/O Events redelivers; the ERP's Idempotency-Key makes the resend a 409).
+  await store.markDone(n)
+  logger.info(`order ${n}: exported${res.duplicate ? ' (ERP already had it)' : ''}`)
+  return { orderNumber: n, outcome: 'exported' }
 }
 
 module.exports = { exportOrder, MAX_RUNS }

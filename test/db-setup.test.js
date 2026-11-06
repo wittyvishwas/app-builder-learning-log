@@ -16,7 +16,7 @@ test('creates the planned indexes on both collections', async () => {
   const db = fakeDb()
   const res = await ensureIndexes(db.client)
   expect(res.skipped).toEqual([])
-  expect(names(db, 'export_runs')).toEqual(['sku_1_at_-1', 'order_1_status_1'])
+  expect(names(db, 'export_runs')).toEqual(['sku_1_at_-1', 'order_1_status_1', 'status_1_nextAt_1'])
   expect(names(db, 'stuck_alerts')).toEqual(['order_1', 'handled_1_at_-1'])
   expect(db.indexes.get('stuck_alerts').find(i => i.name === 'order_1').unique).toBe(true)
 })
@@ -27,7 +27,7 @@ test('a second run changes nothing and reports everything as skipped', async () 
   const second = await ensureIndexes(db.client)
   expect(second.created).toEqual([])
   expect(second.skipped.sort()).toEqual(first.created.sort())
-  expect(names(db, 'export_runs')).toHaveLength(2)
+  expect(names(db, 'export_runs')).toHaveLength(3)
 })
 
 test('creates only what is missing', async () => {
@@ -35,7 +35,7 @@ test('creates only what is missing', async () => {
   await db.client.collection('export_runs').createIndex({ sku: 1, at: -1 }, { name: 'sku_1_at_-1' })
   const res = await ensureIndexes(db.client)
   expect(res.skipped).toEqual(['export_runs.sku_1_at_-1'])
-  expect(res.created).toHaveLength(3)
+  expect(res.created).toHaveLength(4)
 })
 
 test('the unique index on stuck_alerts.order rejects a second alert for the same order', async () => {
@@ -62,7 +62,7 @@ test('run() gets a token from the .env credentials, then closes the client', asy
     clientId: 'id', clientSecret: 'secret', orgId: 'org@AdobeOrg', scopes: ['AdobeID', 'openid', 'adobeio_api']
   })
   expect(mockDb.calls.init).toEqual([{ token: 'tok-abc', region: 'emea', ow: { namespace: '1234-demo-stage' } }])
-  expect(res.created).toHaveLength(4)
+  expect(res.created).toHaveLength(5)
   expect(mockDb.calls.close).toBe(1)
 })
 

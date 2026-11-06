@@ -13,7 +13,9 @@ const path = require('path')
 const INDEXES = {
   export_runs: [
     { name: 'sku_1_at_-1', spec: { sku: 1, at: -1 }, options: {} },
-    { name: 'order_1_status_1', spec: { order: 1, status: 1 }, options: {} }
+    { name: 'order_1_status_1', spec: { order: 1, status: 1 }, options: {} },
+    // The retry run's query: status 'retry' and nextAt due, oldest first.
+    { name: 'status_1_nextAt_1', spec: { status: 1, nextAt: 1 }, options: {} }
   ],
   stuck_alerts: [
     { name: 'order_1', spec: { order: 1 }, options: { unique: true } },

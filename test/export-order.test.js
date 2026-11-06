@@ -173,7 +173,7 @@ test('a bare order works for a manual invocation', async () => {
 
 test('if Database Storage cannot record anything, the handler fails so I/O Events redelivers, and still closes', async () => {
   global.fetch = scriptedFetch([201])
-  mockDb = fakeDb(new Map(), { failOn: ['updateOne'] })
+  mockDb = fakeDb(new Map(), { failOn: ['updateMany', 'insertOne'] })
   const res = await main(event)
   expect(res.error.statusCode).toBe(500)
   expect(mockDb.calls.close).toBe(1)
@@ -282,11 +282,92 @@ test('the logger never receives an ERP body or an error object', async () => {
   }
 })
 
-test('no TTL: rows carry no expiry, and the README says they stay until cleaned', async () => {
+test('no TTL: a sent row older than 30 days still de-dups', async () => {
+  mockDb = fakeDb(new Map([['export_runs', [{ order: '000000201', status: 'sent', at: '2020-01-01T00:00:00.000Z' }]]]))
   global.fetch = scriptedFetch([201])
-  await main(event)
-  expect(Object.keys(row('000000201'))).not.toEqual(expect.arrayContaining(['ttl']))
-  const readme = require('fs').readFileSync(require('path').join(__dirname, '../README.md'), 'utf8')
-  expect(readme).toMatch(/no TTL/i)
-  expect(readme).toMatch(/stay until/i)
+  expect((await main(event)).body.outcome).toBe('skipped')
+  expect(global.fetch).not.toHaveBeenCalled()
+})
+
+test('a late transient failure never overwrites a sent row', async () => {
+  const { connect } = require('../actions/order-sync/store')
+  const { store, close } = await connect({})
+  await store.markDone('000000201')
+  expect(await store.putRetry('000000201', { mapped: { orderNumber: '000000201' }, attempts: 1, lastError: 'x', httpStatus: 503 })).toBe(false)
+  expect(await store.putDead('000000201', { lines: [], totals: {}, attempts: 1, lastError: 'x', httpStatus: 422 })).toBe(false)
+  await close()
+  expect(rows()).toHaveLength(1)
+  expect(row('000000201').status).toBe('sent')
+})
+
+test('a racing delivery that fails after another succeeded leaves the order sent', async () => {
+  // The first delivery's POST is in flight while the second one succeeds and records sent.
+  let release
+  const gate = new Promise(resolve => { release = resolve })
+  global.fetch = jest.fn(async () => { await gate; return { ok: false, status: 503, text: async () => '' } })
+  const first = main(event)
+  await new Promise(resolve => setImmediate(resolve))
+  const seen = rows().length
+  mockDb.data.set('export_runs', [{ order: '000000201', status: 'sent', at: new Date().toISOString() }])
+  release()
+  const res = await first
+  expect(seen).toBe(0)
+  expect(res.body.outcome).toBe('skipped')
+  expect(rows().map(r => r.status)).toEqual(['sent'])
+})
+
+test('markDone settles every row for the order, and adds a sent row only when there was none', async () => {
+  mockDb = fakeDb(new Map([['export_runs', [
+    { order: '000000201', status: 'retry', attempts: 2, nextAt: '2020-01-01T00:00:00.000Z', mapped: { orderNumber: '000000201', customer: { email: 'jane@example.com' } }, at: '2020-01-01T00:00:00.000Z' },
+    { order: '000000201', status: 'sent', at: '2020-01-01T00:00:00.000Z' }
+  ]]]))
+  const { connect } = require('../actions/order-sync/store')
+  const { store, close } = await connect({})
+  await store.markDone('000000201')
+  await store.markDone('000000202')
+  await close()
+  expect(rows().filter(r => r.order === '000000201').map(r => r.status)).toEqual(['sent', 'sent'])
+  expect(JSON.stringify(rows())).not.toContain('jane')
+  expect(rows().filter(r => r.order === '000000202')).toHaveLength(1)
+  expect(Object.keys(row('000000202')).sort()).toEqual(['at', 'order', 'status'])
+})
+
+test('a retry run that finds its order already sent settles the stray retry row', async () => {
+  mockDb = fakeDb(new Map([['export_runs', [
+    { order: '000000201', status: 'sent', at: '2020-01-01T00:00:00.000Z' },
+    { order: '000000201', status: 'retry', attempts: 1, nextAt: '2020-01-01T00:00:00.000Z', mapped: { orderNumber: '000000201', customer: { email: 'jane@example.com' } }, at: '2020-01-01T00:00:00.000Z' }
+  ]]]))
+  global.fetch = scriptedFetch([201])
+  expect((await retry(params)).body).toMatchObject({ skipped: 1, exported: 0 })
+  expect(global.fetch).not.toHaveBeenCalled()
+  expect(rows().map(r => r.status)).toEqual(['sent', 'sent'])
+  expect(JSON.stringify(rows())).not.toContain('jane')
+  expect((await retry(params)).body).toMatchObject({ skipped: 0 }) // nothing due any more
+})
+
+test('a retry row without a stored order goes dead, and the run continues', async () => {
+  mockDb = fakeDb(new Map([['export_runs', [
+    { order: '401', status: 'retry', attempts: 2, nextAt: '2020-01-01T00:00:01.000Z', mapped: null, at: '2020-01-01T00:00:00.000Z' },
+    { order: '402', status: 'retry', attempts: 1, nextAt: '2020-01-01T00:00:02.000Z', mapped: 'garbage', at: '2020-01-01T00:00:00.000Z' },
+    { order: '403', status: 'retry', attempts: 1, nextAt: '2020-01-01T00:00:03.000Z', mapped: { orderNumber: '403', lines: [] }, at: '2020-01-01T00:00:00.000Z' }
+  ]]]))
+  global.fetch = scriptedFetch([201])
+  const res = await retry(params)
+  expect(res.statusCode).toBe(200)
+  expect(res.body).toMatchObject({ dead: 2, exported: 1 })
+  expect(row('401')).toMatchObject({ status: 'dead', lastError: 'cannot resend: no stored order', mapped: null })
+  expect(row('402').status).toBe('dead')
+  expect(row('403').status).toBe('sent')
+  expect(mockLogs.some(l => l.level === 'error' && l.args[0].includes('401'))).toBe(true)
+})
+
+test('an error on one row is logged and the run goes on; error only if nothing could be recorded', async () => {
+  global.fetch = scriptedFetch([503])
+  for (const n of ['301', '302']) await main({ ...params, data: { value: { ...order, increment_id: n } } })
+  const data = mockDb.data
+  // Every write fails: both rows error, so the run reports an error and the lock is released.
+  mockDb = fakeDb(data, { failOn: ['updateMany', 'updateOne'] })
+  global.fetch = scriptedFetch([201])
+  expect((await retry(params)).error.statusCode).toBe(500)
+  expect(mockStore.has('order-sync.lock.retry')).toBe(false)
 })
