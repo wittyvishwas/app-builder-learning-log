@@ -371,3 +371,18 @@ test('an error on one row is logged and the run goes on; error only if nothing c
   expect((await retry(params)).error.statusCode).toBe(500)
   expect(mockStore.has('order-sync.lock.retry')).toBe(false)
 })
+
+test('markDone does not depend on the shape of updateMany\'s result', async () => {
+  const wrap = coll => ({ ...coll, updateMany: async (...a) => { await coll.updateMany(...a); return {} } })
+  const client = mockDb.client
+  const orig = client.collection
+  client.collection = name => wrap(orig(name))
+  mockDb.data.set('export_runs', [{ order: '000000201', status: 'retry', attempts: 1, nextAt: '2020-01-01T00:00:00.000Z', mapped: { orderNumber: '000000201' }, at: '2020-01-01T00:00:00.000Z' }])
+  const { connect } = require('../actions/order-sync/store')
+  const { store, close } = await connect({})
+  await store.markDone('000000201')
+  await store.markDone('000000202')
+  await close()
+  expect(rows().filter(r => r.order === '000000201').map(r => r.status)).toEqual(['sent'])
+  expect(rows().filter(r => r.order === '000000202').map(r => r.status)).toEqual(['sent'])
+})

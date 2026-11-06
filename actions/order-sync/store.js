@@ -46,8 +46,9 @@ async function connect (params) {
     // Every row for the order (a stray retry row next to a sent one, Ep 6's insertOne) becomes sent, and the
     // mapped order and schedule are cleared; a new sent row, in Ep 6's shape, only when there was none.
     async markDone (n) {
-      const res = await runs.updateMany({ order: n }, { $set: { status: 'sent', at: now(), mapped: null, nextAt: null } })
-      if (!res || !res.matchedCount) await runs.insertOne({ order: n, status: 'sent', at: now() })
+      await runs.updateMany({ order: n }, { $set: { status: 'sent', at: now(), mapped: null, nextAt: null } })
+      // Don't rely on the shape of updateMany's result (aio-lib-db passes the service response through): look.
+      if (!(await store.isDone(n))) await runs.insertOne({ order: n, status: 'sent', at: now() })
     },
     // A retry row left next to a sent row (a race): settle it so it is not picked up again and holds no order.
     settleRetry: n => runs.updateMany({ order: n, status: 'retry' }, { $set: { status: 'sent', mapped: null, nextAt: null } }),
