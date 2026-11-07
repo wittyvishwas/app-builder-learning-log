@@ -259,6 +259,8 @@ test('order-placed (Ep 6, claims) and export-order: one direction is seen, the o
   global.fetch = scriptedFetch([409])
   expect((await placed({ ...params, data: { value: { increment_id: '000000202', grand_total: '1' } } })).body).toEqual({ sent: '000000202' })
   expect(global.fetch.mock.calls[0][1].headers['Idempotency-Key']).toBe('000000202')
+  // Its sent row is an upsert, so export-order's row for the order stays the only one.
+  expect(mockDb.data.get('export_runs').filter(r => r.order === '000000202' && r.status === 'sent')).toHaveLength(1)
 })
 
 test('the logger never receives an ERP body or an error object', async () => {

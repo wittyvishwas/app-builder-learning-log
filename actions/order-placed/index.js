@@ -8,7 +8,7 @@
  * the order_claims collection holds one document per order ({ order, status, at }) behind a unique index on
  * `order`, and an upsert that matches nothing claimable tries to insert, which the index rejects when a
  * `sent` or fresh `sending` claim exists. Only the delivery that wins the claim calls the ERP.
- *   - claim won: send, insert the sent row in export_runs (Ep 4 and Ep 10 read it), mark the claim `sent`.
+ *   - claim won: send, upsert the sent row in export_runs (Ep 4 and Ep 10 read it), mark the claim `sent`.
  *   - claim lost: `sent` answers 200 skipped; a fresh `sending` answers 409 so I/O Events keeps retrying.
  *   - send failed: the claim becomes `failed` and the answer is 500, so a redelivery can claim it again.
  *   - a `sending` claim older than STALE_SENDING_MS (a run that died mid-send) is claimable again.
@@ -36,6 +36,8 @@ async function sendToErp (params, order) {
 }
 
 // A claim left in `sending` this long ago belongs to a run that died, so it can be claimed again.
+// It must stay well above the action timeout (Runtime default 60 s; app.config.yaml sets no limits) plus the
+// ERP retries in erp.js: a run that is still sending must never look dead, or a second delivery would send too.
 const STALE_SENDING_MS = 10 * 60 * 1000
 
 // Only picks the log level: the decision is made from the claim document, not from the error text.
@@ -76,7 +78,8 @@ async function main (params) {
       )
     } catch (e) {
       // Any claim error: look at the claim itself and decide from that, never from the error text.
-      const claim = await claims.findOne({ order: id })
+      // If this lookup fails too, the claim error `e` is the one that gets rethrown and logged.
+      const claim = await claims.findOne({ order: id }).catch(() => null)
       if (claim?.status === 'sent') {
         logger[isDuplicateKeyError(e) ? 'info' : 'warn'](`order ${id} already claimed (sent)`)
         return { statusCode: 200, body: { skipped: true } }
@@ -100,7 +103,8 @@ async function main (params) {
       throw e
     }
     const at = new Date().toISOString()
-    await runs.insertOne({ order: id, status: 'sent', at })
+    // An upsert, so a redelivery that sends again never adds a second sent row; Ep 10's retry and dead rows stay as they are.
+    await runs.updateOne({ order: id, status: 'sent' }, { $set: { at } }, { upsert: true })
     await claims.updateOne({ order: id, status: 'sending' }, { $set: { status: 'sent', at } })
     return { statusCode: 200, body: { sent: id } }
   } catch (e) {
