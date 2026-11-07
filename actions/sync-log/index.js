@@ -34,7 +34,7 @@ async function main (params) {
     const [failed = null] = await runs.find({ sku: params.sku, status: 'failed' }).sort({ at: -1 }).limit(1).toArray()
     return { statusCode: 200, body: { lastFailure: failed } }
   } catch (e) {
-    logger.error(e)
+    logger.error(e.message)
     return { statusCode: 500, body: { error: e.name === 'DbError' ? 'database error' : e.message } }
   } finally {
     if (client) await client.close()

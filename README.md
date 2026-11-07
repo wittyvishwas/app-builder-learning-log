@@ -130,14 +130,14 @@ aio app config set log-forwarding
 
 The base URI depends on where you log in to New Relic. US (`https://one.newrelic.com/`): `https://log-api.newrelic.com/log/v1`. EU (`https://one.eu.newrelic.com/`): `https://log-api.eu.newrelic.com/log/v1`. Include the `https://`. A wrong region doesn't fail loudly; your logs just never arrive.
 
-The license key is stored in `.env`, which stays out of git. The setting applies to the workspace as soon as `aio app config set log-forwarding` runs, not on the next deploy, and `get` shows the destination and base URI, never the key:
+The license key is stored in `.env`, which stays out of git. The setting applies to the workspace as soon as `aio app config set log-forwarding` runs, not on the next deploy. Deploy the actions as usual, then check it; `get` shows the destination and base URI, never the key:
 
 ```bash
 aio app deploy
 aio app config get log-forwarding
 ```
 
-A deploy with `--no-actions` or `--no-log-forwarding-update` skips the forwarding settings stored in `.aio` and `.env`, so use a normal deploy.
+A later deploy re-applies the settings stored in `.aio` and `.env`, unless it runs with `--no-actions` or `--no-log-forwarding-update`.
 
 Run an action that logs, then open **Logs** in New Relic and look for the new lines:
 
@@ -147,7 +147,7 @@ aio rt action invoke ops/stuck-orders --result
 
 Keep `LOG_LEVEL: info` in the action inputs (already set in `app.config.yaml`), and use `debug` only while you investigate. Forwarding sends what you write, and an action's logs are cut off after 10 MB per activation.
 
-If nothing arrives, run `aio app config get log-forwarding errors`. It shows the most recent 10 forwarding errors, from up to 30 days back. The usual causes are the wrong regional base URI, a key that isn't an ingest license key, or a deploy that skipped the forwarding update.
+If nothing arrives, run `aio app config get log-forwarding errors`. It shows the most recent 10 forwarding errors, from up to 30 days back. The usual causes are the wrong regional base URI, a key that isn't an ingest license key, or a later deploy run with `--no-log-forwarding-update` over a changed setting.
 
 Once logs leave the terminal, more people read them. Log one line per significant step, with the order number or SKU in it. Never log tokens, API keys or customer personal data. Log errors with the reason and the next action ("will retry in 15 minutes"), not just a stack trace.
 
