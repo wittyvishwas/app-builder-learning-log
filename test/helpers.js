@@ -55,6 +55,8 @@ const isOps = c => c && typeof c === 'object' && !Array.isArray(c) && Object.key
 
 function matches (doc, filter = {}) {
   return Object.entries(filter).every(([field, cond]) => {
+    if (field === '$or') return cond.some(f => matches(doc, f))
+    if (field === '$and') return cond.every(f => matches(doc, f))
     const v = doc[field]
     if (!isOps(cond)) return same(v, cond)
     return Object.entries(cond).every(([op, x]) => {
@@ -80,7 +82,7 @@ function fakeDb (data = new Map(), { failOn = [] } = {}) {
     for (const ix of idxOf(name).filter(i => i.unique && i.name !== '_id_')) {
       const keys = Object.keys(ix.key)
       if (rows(name).some(r => r !== ignore && keys.every(k => r[k] === doc[k]))) {
-        throw new DbError(`fakeDb: duplicate key on ${name}.${ix.name}`)
+        throw new DbError(`fakeDb: E11000 duplicate key error on ${name}.${ix.name}`)
       }
     }
   }
@@ -117,7 +119,7 @@ function fakeDb (data = new Map(), { failOn = [] } = {}) {
         const doc = rows(name).find(r => matches(r, filter))
         if (doc) { checkUnique(name, applyUpdate({ ...doc }, update, false), doc); applyUpdate(doc, update, false); return { matchedCount: 1, modifiedCount: 1, upsertedCount: 0 } }
         if (!upsert) return { matchedCount: 0, modifiedCount: 0, upsertedCount: 0 }
-        const plain = Object.fromEntries(Object.entries(filter).filter(([, v]) => !isOps(v)))
+        const plain = Object.fromEntries(Object.entries(filter).filter(([k, v]) => !k.startsWith('$') && !isOps(v)))
         insert(applyUpdate({ ...plain }, update, true))
         return { matchedCount: 0, modifiedCount: 0, upsertedCount: 1 }
       },
@@ -126,7 +128,7 @@ function fakeDb (data = new Map(), { failOn = [] } = {}) {
         const docs = rows(name).filter(r => matches(r, filter))
         docs.forEach(d => applyUpdate(d, update, false))
         if (!docs.length && upsert) {
-          const plain = Object.fromEntries(Object.entries(filter).filter(([, v]) => !isOps(v)))
+          const plain = Object.fromEntries(Object.entries(filter).filter(([k, v]) => !k.startsWith('$') && !isOps(v)))
           insert(applyUpdate({ ...plain }, update, true))
           return { matchedCount: 0, modifiedCount: 0, upsertedCount: 1 }
         }

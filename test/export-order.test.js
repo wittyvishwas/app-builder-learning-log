@@ -243,22 +243,22 @@ test('the retry run stops at MAX_PER_RUN and on its time budget, and reports wha
   } finally { Date.now = realNow }
 })
 
-test('Ep 6 order-placed and export-order see each other\'s sent rows', async () => {
+test('order-placed (Ep 6, claims) and export-order: one direction is seen, the other relies on the ERP key', async () => {
   global.fetch = scriptedFetch([200])
   const ep6 = { ...params, data: { value: { increment_id: '000000201', grand_total: '119.9' } } }
-  // order-placed writes first: export-order skips.
+  // order-placed writes first: its sent row makes export-order skip.
   expect((await placed(ep6)).body).toEqual({ sent: '000000201' })
   global.fetch = scriptedFetch([201])
   expect((await main(event)).body.outcome).toBe('skipped')
   expect(global.fetch).not.toHaveBeenCalled()
-  // export-order writes first: order-placed skips.
+  // export-order writes first: order-placed looks only at its own claims, so it sends again and the ERP's
+  // Idempotency-Key makes that a 409. This is why only one of the two is registered for the event.
   mockDb = fakeDb()
   global.fetch = scriptedFetch([201])
   await main({ ...params, data: { value: { ...order, increment_id: '000000202' } } })
-  global.fetch = scriptedFetch([200])
-  expect((await placed({ ...params, data: { value: { increment_id: '000000202', grand_total: '1' } } })).body).toEqual({ skipped: true })
-  expect(global.fetch).not.toHaveBeenCalled()
-  expect(rows().filter(r => r.status === 'sent')).toHaveLength(1)
+  global.fetch = scriptedFetch([409])
+  expect((await placed({ ...params, data: { value: { increment_id: '000000202', grand_total: '1' } } })).body).toEqual({ sent: '000000202' })
+  expect(global.fetch.mock.calls[0][1].headers['Idempotency-Key']).toBe('000000202')
 })
 
 test('the logger never receives an ERP body or an error object', async () => {
