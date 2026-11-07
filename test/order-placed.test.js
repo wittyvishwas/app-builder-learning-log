@@ -26,6 +26,22 @@ const dbWithIndex = async (data) => {
   await db.client.collection('order_claims').createIndex({ order: 1 }, { unique: true, name: 'order_1' })
   return db
 }
+// Makes every order_claims.updateOne throw a plain error (not a duplicate key), like an outage during the claim.
+const breakClaimWrites = db => {
+  const real = db.client.collection
+  db.client.collection = name => {
+    const c = real(name)
+    if (name === 'order_claims') c.updateOne = async () => { throw new Error('service unavailable') }
+    return c
+  }
+  return db
+}
+// Logger spies, one per level, so the info/warn choice is asserted.
+const spyLogger = () => {
+  const log = { info: jest.fn(), warn: jest.fn(), error: jest.fn() }
+  const spy = jest.spyOn(require('@adobe/aio-sdk').Core, 'Logger').mockReturnValue({ ...log, debug: () => {} })
+  return { ...log, restore: () => spy.mockRestore() }
+}
 const withClaim = (status, at) => dbWithIndex(new Map([['order_claims', [{ order: '000000201', status, at }]]]))
 
 beforeEach(() => {
@@ -65,7 +81,7 @@ test('a redelivery is skipped without calling the ERP', async () => {
   expect(mockDb.calls.close).toBe(2)
 })
 
-test('only a sent row counts: a retry or dead row for the order does not skip it', async () => {
+test('only a sent row counts: a retry or dead row for the order does not skip it, and is left alone', async () => {
   mockDb = fakeDb(new Map([['export_runs', [
     { order: '000000201', status: 'dead', at: '2027-01-01T00:00:00.000Z' },
     { order: '000000999', status: 'sent', at: '2027-01-01T00:00:00.000Z' }
@@ -73,6 +89,18 @@ test('only a sent row counts: a retry or dead row for the order does not skip it
   const res = await main({ ...base, ...event })
   expect(res.body).toEqual({ sent: '000000201' })
   expect(global.fetch).toHaveBeenCalledTimes(1)
+  const rows = mockDb.data.get('export_runs')
+  expect(rows.map(r => `${r.order}:${r.status}`)).toEqual(['000000201:dead', '000000999:sent', '000000201:sent'])
+  expect(rows[0].at).toBe('2027-01-01T00:00:00.000Z')
+})
+
+test('the sent row is an upsert: an existing sent row is updated, never duplicated', async () => {
+  mockDb = fakeDb(new Map([['export_runs', [{ order: '000000201', status: 'sent', at: '2020-01-01T00:00:00.000Z' }]]]))
+  const res = await main({ ...base, ...event })
+  expect(res.body).toEqual({ sent: '000000201' })
+  const rows = mockDb.data.get('export_runs')
+  expect(rows).toHaveLength(1)
+  expect(rows[0].at).not.toBe('2020-01-01T00:00:00.000Z')
 })
 
 test('params.data without .value works', async () => {
@@ -157,16 +185,29 @@ test('a database failure on the claim answers 500, sends nothing and still close
 test('a failure on the claim and on the lookup after it answers 500 and sends nothing', async () => {
   mockDb = fakeDb(new Map(), { failOn: ['updateOne', 'findOne'] })
   const res = await main({ ...base, ...event })
-  expect(res.statusCode).toBe(500)
+  // The claim error is what comes back, not the error of the lookup.
+  expect(res).toEqual({ statusCode: 500, body: { error: 'fakeDb: updateOne failed' } })
   expect(global.fetch).not.toHaveBeenCalled()
   expect(mockDb.calls.close).toBe(1)
 })
 
-test('a failed insert after a successful send answers 500, keeps the claim sending (the ERP dedups) and closes', async () => {
-  mockDb = fakeDb(new Map(), { failOn: ['insertOne'] })
+test('a failed sent row after a successful send answers 500, keeps the claim sending (the ERP dedups) and closes', async () => {
+  mockDb = fakeDb(new Map(), { failOn: ['export_runs.updateOne'] })
   const res = await main({ ...base, ...event })
   expect(res.statusCode).toBe(500)
   expect(global.fetch).toHaveBeenCalledTimes(1)
+  expect(mockDb.data.get('export_runs') || []).toHaveLength(0)
+  expect(claimsOf(mockDb)).toEqual([expect.objectContaining({ status: 'sending' })])
+  expect(mockDb.calls.close).toBe(1)
+})
+
+test('marking the claim sent fails after a successful send: 500, the sent row is there, the claim stays sending', async () => {
+  // Calls to order_claims.updateOne: 1 is the claim, 2 is the mark sent.
+  mockDb = fakeDb(new Map(), { failOn: ['order_claims.updateOne#2'] })
+  const res = await main({ ...base, ...event })
+  expect(res).toEqual({ statusCode: 500, body: { error: 'fakeDb: updateOne failed' } })
+  expect(global.fetch).toHaveBeenCalledTimes(1)
+  expect(mockDb.data.get('export_runs')).toEqual([expect.objectContaining({ order: '000000201', status: 'sent' })])
   expect(claimsOf(mockDb)).toEqual([expect.objectContaining({ status: 'sending' })])
   expect(mockDb.calls.close).toBe(1)
 })
@@ -177,14 +218,12 @@ test('the sent row is written before the claim is marked sent', async () => {
   const real = mockDb.client.collection
   mockDb.client.collection = name => {
     const c = real(name)
-    for (const m of ['insertOne', 'updateOne']) {
-      const f = c[m]
-      c[m] = async (...a) => { calls.push(`${name}.${m}`); return f(...a) }
-    }
+    const f = c.updateOne
+    c.updateOne = async (...a) => { calls.push(`${name}.updateOne`); return f(...a) }
     return c
   }
   await main({ ...base, ...event })
-  expect(calls).toEqual(['order_claims.updateOne', 'export_runs.insertOne', 'order_claims.updateOne'])
+  expect(calls).toEqual(['order_claims.updateOne', 'export_runs.updateOne', 'order_claims.updateOne'])
 })
 
 test('a sent claim is skipped without calling the ERP', async () => {
@@ -255,6 +294,39 @@ test('a claim error that is not a duplicate key, with no claim on file, answers 
   expect(global.fetch).not.toHaveBeenCalled()
 })
 
+test('a claim error that is not a duplicate key, with a sent claim on file: 200 skipped and a warn log', async () => {
+  const log = spyLogger()
+  mockDb = breakClaimWrites(await withClaim('sent', minutesAgo(60)))
+  const res = await main({ ...base, ...event })
+  log.restore()
+  expect(res).toEqual({ statusCode: 200, body: { skipped: true } })
+  expect(global.fetch).not.toHaveBeenCalled()
+  expect(log.warn.mock.calls).toEqual([['order 000000201 already claimed (sent)']])
+  expect(log.info).not.toHaveBeenCalled()
+})
+
+test('a claim error that is not a duplicate key, with a fresh sending claim on file: 409 and a warn log', async () => {
+  const log = spyLogger()
+  mockDb = breakClaimWrites(await withClaim('sending', minutesAgo(1)))
+  const res = await main({ ...base, ...event })
+  log.restore()
+  expect(res).toEqual({ statusCode: 409, body: { error: 'in progress, retry later' } })
+  expect(global.fetch).not.toHaveBeenCalled()
+  expect(log.warn.mock.calls).toEqual([['order 000000201 already claimed (sending)']])
+  expect(log.info).not.toHaveBeenCalled()
+})
+
+test.each([
+  ['failed', 1],
+  ['sending', 11]
+])('a claim error with a %s claim that is claimable: 500 with the original error, nothing sent', async (status, age) => {
+  mockDb = breakClaimWrites(await withClaim(status, minutesAgo(age)))
+  const res = await main({ ...base, ...event })
+  expect(res).toEqual({ statusCode: 500, body: { error: 'service unavailable' } })
+  expect(global.fetch).not.toHaveBeenCalled()
+  expect(claimsOf(mockDb)[0].status).toBe(status)
+})
+
 test.each([
   ['an operator object', { $ne: null }],
   ['a number', 201],
@@ -269,20 +341,19 @@ test.each([
   expect(global.fetch).not.toHaveBeenCalled()
 })
 
-test('skip and in-progress logs carry the message only, never the database error', async () => {
-  const info = jest.fn()
-  const sdk = require('@adobe/aio-sdk')
-  const spy = jest.spyOn(sdk.Core, 'Logger').mockReturnValue({ info, warn: info, error: info, debug: () => {} })
+test('skip and in-progress logs after a duplicate key are info, carry the message only, never the database error', async () => {
+  const { info, warn, restore } = spyLogger()
   mockDb = await dbWithIndex()
   await main({ ...base, ...event })
   await main({ ...base, ...event })
   mockDb = await withClaim('sending', minutesAgo(1))
   await main({ ...base, ...event })
-  spy.mockRestore()
+  restore()
   expect(info.mock.calls).toEqual([
     ['order 000000201 already claimed (sent)'],
     ['order 000000201 already claimed (sending)']
   ])
+  expect(warn).not.toHaveBeenCalled()
 })
 
 test('error logs carry only the message: no stack, no object, no ERP response body', async () => {
