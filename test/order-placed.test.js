@@ -81,7 +81,7 @@ test('a redelivery is skipped without calling the ERP', async () => {
   expect(mockDb.calls.close).toBe(2)
 })
 
-test('only a sent row counts: a retry or dead row for the order does not skip it, and is left alone', async () => {
+test('export_runs rows do not influence the claim: a retry or dead row is left alone', async () => {
   mockDb = fakeDb(new Map([['export_runs', [
     { order: '000000201', status: 'dead', at: '2027-01-01T00:00:00.000Z' },
     { order: '000000999', status: 'sent', at: '2027-01-01T00:00:00.000Z' }
