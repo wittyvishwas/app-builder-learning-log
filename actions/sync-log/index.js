@@ -3,9 +3,8 @@
  * and answers with the latest failure for the same SKU. Needs include-ims-credentials: true
  * in app.config.yaml, so the action receives the OAuth credentials that generateAccessToken uses.
  *
- * Difference from the post: the post's snippet reads the failure with findOne({ sku, status: 'failed' }),
- * which returns *a* matching row, not necessarily the newest. Because the field is called lastFailure,
- * this version sorts by `at` descending and takes one, which is what the name promises. Same query, same result shape.
+ * Same query as the post: find({ sku, status: 'failed' }).sort({ at: -1 }).limit(1), so lastFailure is the newest
+ * failure for that SKU, which is what the name promises. Same result shape.
  * It also returns 400 when sku or status is missing, which the post's snippet omits: an undefined field is dropped
  * when the document and the filter are serialised, so the lookup would match any SKU's latest failure.
  */

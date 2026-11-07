@@ -4,10 +4,11 @@
  */
 let mockDb
 jest.mock('@adobe/aio-lib-db', () => ({ init: (...a) => mockDb.init(...a) }))
+const mockLogError = jest.fn()
 const mockAuth = jest.fn(async () => ({ access_token: 'tok-123' }))
 jest.mock('@adobe/aio-sdk', () => ({
   Core: {
-    Logger: () => ({ info: () => {}, warn: () => {}, error: () => {}, debug: () => {} }),
+    Logger: () => ({ info: () => {}, warn: () => {}, error: (...a) => mockLogError(...a), debug: () => {} }),
     AuthClient: { generateAccessToken: (...a) => mockAuth(...a) }
   }
 }))
@@ -17,6 +18,7 @@ const { main } = require('../actions/sync-log')
 
 beforeEach(() => {
   mockAuth.mockClear()
+  mockLogError.mockClear()
   mockAuth.mockImplementation(async () => ({ access_token: 'tok-123' }))
 })
 
@@ -92,4 +94,11 @@ test.each([
   expect(mockAuth).not.toHaveBeenCalled()
   expect(mockDb.calls.connect).toBe(0)
   expect(mockDb.data.size).toBe(0)
+})
+
+test('a failure logs the message only, never the error object', async () => {
+  mockDb = fakeDb()
+  mockAuth.mockImplementation(async () => { throw new Error('no credentials') })
+  await main({ sku: 'MUG', status: 'sent' })
+  expect(mockLogError.mock.calls).toEqual([['no credentials']])
 })
