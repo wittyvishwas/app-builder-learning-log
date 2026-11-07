@@ -9,7 +9,7 @@
  * `order`, and an upsert that matches nothing claimable tries to insert, which the index rejects when a
  * `sent` or fresh `sending` claim exists. Only the delivery that wins the claim calls the ERP.
  *   - claim won: send, upsert the sent row in export_runs (Ep 4 and Ep 10 read it), mark the claim `sent`.
- *   - claim lost: `sent` answers 200 skipped; a fresh `sending` answers 409 so I/O Events keeps retrying.
+ *   - claim lost: `sent` answers 200 skipped; a fresh `sending` answers 503 so I/O Events retries (it retries 429 and 5xx, never a 409).
  *   - send failed: the claim becomes `failed` and the answer is 500, so a redelivery can claim it again.
  *   - a `sending` claim older than STALE_SENDING_MS (a run that died mid-send) is claimable again.
  * If the sent row or the `sent` mark fails after a successful send, the claim stays `sending` and becomes
@@ -87,7 +87,8 @@ async function main (params) {
       if (claim?.status === 'sending' && claim.at >= staleBefore) {
         logger[isDuplicateKeyError(e) ? 'info' : 'warn'](`order ${id} already claimed (sending)`)
         // Not 200: the delivery that holds the claim may still fail, and a retry has to stay possible.
-        return { statusCode: 409, body: { error: 'in progress, retry later' } }
+        // Not 409 either: I/O Events retries only 429 and 5xx (except 505) and never another status.
+        return { statusCode: 503, body: { error: 'in progress, retry later' } }
       }
       throw e
     }
@@ -110,8 +111,8 @@ async function main (params) {
   } catch (e) {
     // Message only: never the whole error or an ERP response body.
     logger.error(`order ${id}: ${e.message}`)
-    // 500 so a retry is possible (as in the post). Whether I/O Events retries a Runtime action on its
-    // returned statusCode is not verified on Stage yet. A permanent ERP error (400/422) also lands here.
+    // 500 so a retry is possible (as in the post). That a Runtime action's returned statusCode is treated
+    // like a webhook response is not verified on Stage yet. A permanent ERP error (400/422) also lands here.
     return { statusCode: 500, body: { error: e.message } }
   } finally {
     if (client) await client.close()

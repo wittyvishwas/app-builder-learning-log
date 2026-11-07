@@ -234,10 +234,10 @@ test('a sent claim is skipped without calling the ERP', async () => {
   expect(claimsOf(mockDb)).toHaveLength(1)
 })
 
-test('a fresh sending claim answers 409 so I/O Events retries, and calls no ERP', async () => {
+test('a fresh sending claim answers 503 so I/O Events retries, and calls no ERP', async () => {
   mockDb = await withClaim('sending', minutesAgo(1))
   const res = await main({ ...base, ...event })
-  expect(res).toEqual({ statusCode: 409, body: { error: 'in progress, retry later' } })
+  expect(res).toEqual({ statusCode: 503, body: { error: 'in progress, retry later' } })
   expect(global.fetch).not.toHaveBeenCalled()
   expect(claimsOf(mockDb)[0]).toMatchObject({ status: 'sending' })
   expect(mockDb.calls.close).toBe(1)
@@ -274,7 +274,7 @@ test('two deliveries at once: exactly one ERP call', async () => {
   mockDb = await dbWithIndex()
   const results = await Promise.all([main({ ...base, ...event }), main({ ...base, ...event })])
   expect(global.fetch).toHaveBeenCalledTimes(1)
-  expect(results.map(r => r.statusCode).sort()).toEqual([200, 409])
+  expect(results.map(r => r.statusCode).sort()).toEqual([200, 503])
   expect(results.find(r => r.statusCode === 200).body).toEqual({ sent: '000000201' })
   expect(mockDb.data.get('export_runs')).toHaveLength(1)
   expect(claimsOf(mockDb)).toEqual([expect.objectContaining({ status: 'sent' })])
@@ -305,12 +305,12 @@ test('a claim error that is not a duplicate key, with a sent claim on file: 200 
   expect(log.info).not.toHaveBeenCalled()
 })
 
-test('a claim error that is not a duplicate key, with a fresh sending claim on file: 409 and a warn log', async () => {
+test('a claim error that is not a duplicate key, with a fresh sending claim on file: 503 and a warn log', async () => {
   const log = spyLogger()
   mockDb = breakClaimWrites(await withClaim('sending', minutesAgo(1)))
   const res = await main({ ...base, ...event })
   log.restore()
-  expect(res).toEqual({ statusCode: 409, body: { error: 'in progress, retry later' } })
+  expect(res).toEqual({ statusCode: 503, body: { error: 'in progress, retry later' } })
   expect(global.fetch).not.toHaveBeenCalled()
   expect(log.warn.mock.calls).toEqual([['order 000000201 already claimed (sending)']])
   expect(log.info).not.toHaveBeenCalled()
