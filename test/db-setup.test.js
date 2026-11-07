@@ -12,12 +12,14 @@ const { ensureIndexes, run } = require('../scripts/post-deploy-db-setup')
 
 const names = (db, coll) => db.indexes.get(coll).map(i => i.name).filter(n => n !== '_id_')
 
-test('creates the planned indexes on both collections', async () => {
+test('creates the planned indexes on every collection', async () => {
   const db = fakeDb()
   const res = await ensureIndexes(db.client)
   expect(res.skipped).toEqual([])
   expect(names(db, 'export_runs')).toEqual(['sku_1_at_-1', 'order_1_status_1'])
   expect(names(db, 'stuck_alerts')).toEqual(['order_1', 'handled_1_at_-1'])
+  expect(names(db, 'order_claims')).toEqual(['order_1'])
+  expect(db.indexes.get('order_claims').find(i => i.name === 'order_1').unique).toBe(true)
   expect(db.indexes.get('stuck_alerts').find(i => i.name === 'order_1').unique).toBe(true)
 })
 
@@ -35,7 +37,16 @@ test('creates only what is missing', async () => {
   await db.client.collection('export_runs').createIndex({ sku: 1, at: -1 }, { name: 'sku_1_at_-1' })
   const res = await ensureIndexes(db.client)
   expect(res.skipped).toEqual(['export_runs.sku_1_at_-1'])
-  expect(res.created).toHaveLength(3)
+  expect(res.created).toHaveLength(4)
+})
+
+test('the unique index on order_claims.order rejects a second claim, which is what makes the claim atomic', async () => {
+  const db = fakeDb()
+  await ensureIndexes(db.client)
+  const claims = db.client.collection('order_claims')
+  await claims.updateOne({ order: '000000201', status: 'failed' }, { $set: { status: 'sending' } }, { upsert: true })
+  await expect(claims.updateOne({ order: '000000201', status: 'failed' }, { $set: { status: 'sending' } }, { upsert: true }))
+    .rejects.toThrow('E11000 duplicate key')
 })
 
 test('the unique index on stuck_alerts.order rejects a second alert for the same order', async () => {
@@ -62,7 +73,7 @@ test('run() gets a token from the .env credentials, then closes the client', asy
     clientId: 'id', clientSecret: 'secret', orgId: 'org@AdobeOrg', scopes: ['AdobeID', 'openid', 'adobeio_api']
   })
   expect(mockDb.calls.init).toEqual([{ token: 'tok-abc', region: 'emea', ow: { namespace: '1234-demo-stage' } }])
-  expect(res.created).toHaveLength(4)
+  expect(res.created).toHaveLength(5)
   expect(mockDb.calls.close).toBe(1)
 })
 

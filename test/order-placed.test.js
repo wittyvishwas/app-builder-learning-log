@@ -1,6 +1,6 @@
 /*
  * Unit tests for the Ep 6 order-placed action: aio-lib-db, the token call and the ERP (fetch) are faked.
- * This proves the logic (idempotency through export_runs, status codes, close in finally), not a real delivery.
+ * This proves the logic (the atomic claim in order_claims, status codes, close in finally), not a real delivery.
  */
 let mockDb
 jest.mock('@adobe/aio-lib-db', () => ({ init: (...a) => mockDb.init(...a) }))
@@ -18,6 +18,15 @@ const { main } = require('../actions/order-placed')
 const base = { ERP_API_URL: 'https://erp.example.com/', ERP_API_KEY: 'key-1' }
 const event = { data: { value: { increment_id: '000000201', grand_total: '119.9' } } }
 const realFetch = global.fetch
+const claimsOf = db => db.data.get('order_claims') || []
+const minutesAgo = n => new Date(Date.now() - n * 60 * 1000).toISOString()
+// An index like the one scripts/post-deploy-db-setup.js creates: the fake needs it to reject a second claim.
+const dbWithIndex = async (data) => {
+  const db = fakeDb(data)
+  await db.client.collection('order_claims').createIndex({ order: 1 }, { unique: true, name: 'order_1' })
+  return db
+}
+const withClaim = (status, at) => dbWithIndex(new Map([['order_claims', [{ order: '000000201', status, at }]]]))
 
 beforeEach(() => {
   mockAuth.mockClear()
@@ -42,10 +51,11 @@ test('first delivery sends the order and writes the sent row', async () => {
   expect(new Date(rows[0].at).toISOString()).toBe(rows[0].at)
   expect(mockDb.calls.init).toEqual([{ token: 'tok-123', region: 'emea' }])
   expect(mockDb.calls.close).toBe(1)
+  expect(claimsOf(mockDb)).toEqual([expect.objectContaining({ order: '000000201', status: 'sent' })])
 })
 
 test('a redelivery is skipped without calling the ERP', async () => {
-  mockDb = fakeDb()
+  mockDb = await dbWithIndex()
   await main({ ...base, ...event })
   global.fetch.mockClear()
   const res = await main({ ...base, ...event })
@@ -104,6 +114,7 @@ test('an ERP failure answers 500 and writes no sent row, so I/O Events retries',
   const res = await main({ ...base, ...event })
   expect(res).toEqual({ statusCode: 500, body: { error: 'ERP returned 400' } })
   expect(mockDb.data.get('export_runs') || []).toHaveLength(0)
+  expect(claimsOf(mockDb)).toEqual([expect.objectContaining({ order: '000000201', status: 'failed' })])
   expect(mockDb.calls.close).toBe(1)
 })
 
@@ -135,20 +146,143 @@ test('a token failure answers 500 and calls neither database nor ERP', async () 
   expect(global.fetch).not.toHaveBeenCalled()
 })
 
-test('a database failure on the lookup answers 500 and still closes the client', async () => {
-  mockDb = fakeDb(new Map(), { failOn: ['findOne'] })
+test('a database failure on the claim answers 500, sends nothing and still closes the client', async () => {
+  mockDb = fakeDb(new Map(), { failOn: ['updateOne'] })
+  const res = await main({ ...base, ...event })
+  expect(res).toEqual({ statusCode: 500, body: { error: 'fakeDb: updateOne failed' } })
+  expect(global.fetch).not.toHaveBeenCalled()
+  expect(mockDb.calls.close).toBe(1)
+})
+
+test('a failure on the claim and on the lookup after it answers 500 and sends nothing', async () => {
+  mockDb = fakeDb(new Map(), { failOn: ['updateOne', 'findOne'] })
   const res = await main({ ...base, ...event })
   expect(res.statusCode).toBe(500)
   expect(global.fetch).not.toHaveBeenCalled()
   expect(mockDb.calls.close).toBe(1)
 })
 
-test('a failed insert after a successful send answers 500 (the ERP dedups the redelivery) and closes', async () => {
+test('a failed insert after a successful send answers 500, keeps the claim sending (the ERP dedups) and closes', async () => {
   mockDb = fakeDb(new Map(), { failOn: ['insertOne'] })
   const res = await main({ ...base, ...event })
   expect(res.statusCode).toBe(500)
   expect(global.fetch).toHaveBeenCalledTimes(1)
+  expect(claimsOf(mockDb)).toEqual([expect.objectContaining({ status: 'sending' })])
   expect(mockDb.calls.close).toBe(1)
+})
+
+test('the sent row is written before the claim is marked sent', async () => {
+  mockDb = fakeDb()
+  const calls = []
+  const real = mockDb.client.collection
+  mockDb.client.collection = name => {
+    const c = real(name)
+    for (const m of ['insertOne', 'updateOne']) {
+      const f = c[m]
+      c[m] = async (...a) => { calls.push(`${name}.${m}`); return f(...a) }
+    }
+    return c
+  }
+  await main({ ...base, ...event })
+  expect(calls).toEqual(['order_claims.updateOne', 'export_runs.insertOne', 'order_claims.updateOne'])
+})
+
+test('a sent claim is skipped without calling the ERP', async () => {
+  mockDb = await withClaim('sent', minutesAgo(60))
+  const res = await main({ ...base, ...event })
+  expect(res).toEqual({ statusCode: 200, body: { skipped: true } })
+  expect(global.fetch).not.toHaveBeenCalled()
+  expect(claimsOf(mockDb)).toHaveLength(1)
+})
+
+test('a fresh sending claim answers 409 so I/O Events retries, and calls no ERP', async () => {
+  mockDb = await withClaim('sending', minutesAgo(1))
+  const res = await main({ ...base, ...event })
+  expect(res).toEqual({ statusCode: 409, body: { error: 'in progress, retry later' } })
+  expect(global.fetch).not.toHaveBeenCalled()
+  expect(claimsOf(mockDb)[0]).toMatchObject({ status: 'sending' })
+  expect(mockDb.calls.close).toBe(1)
+})
+
+test('a stale sending claim is claimed again and sent', async () => {
+  mockDb = await withClaim('sending', minutesAgo(11))
+  const res = await main({ ...base, ...event })
+  expect(res.body).toEqual({ sent: '000000201' })
+  expect(global.fetch).toHaveBeenCalledTimes(1)
+  expect(claimsOf(mockDb)).toEqual([expect.objectContaining({ order: '000000201', status: 'sent' })])
+})
+
+test('a failed claim is claimed again and sent', async () => {
+  mockDb = await withClaim('failed', minutesAgo(1))
+  const res = await main({ ...base, ...event })
+  expect(res.body).toEqual({ sent: '000000201' })
+  expect(global.fetch).toHaveBeenCalledTimes(1)
+  expect(claimsOf(mockDb)).toHaveLength(1)
+  expect(claimsOf(mockDb)[0].status).toBe('sent')
+})
+
+test('an ERP failure, then a redelivery: the second delivery claims it and sends', async () => {
+  mockDb = await dbWithIndex()
+  global.fetch = scriptedFetch([400])
+  expect((await main({ ...base, ...event })).statusCode).toBe(500)
+  global.fetch = scriptedFetch([200])
+  expect((await main({ ...base, ...event })).body).toEqual({ sent: '000000201' })
+  expect(global.fetch).toHaveBeenCalledTimes(1)
+  expect(claimsOf(mockDb)).toHaveLength(1)
+})
+
+test('two deliveries at once: exactly one ERP call', async () => {
+  mockDb = await dbWithIndex()
+  const results = await Promise.all([main({ ...base, ...event }), main({ ...base, ...event })])
+  expect(global.fetch).toHaveBeenCalledTimes(1)
+  expect(results.map(r => r.statusCode).sort()).toEqual([200, 409])
+  expect(results.find(r => r.statusCode === 200).body).toEqual({ sent: '000000201' })
+  expect(mockDb.data.get('export_runs')).toHaveLength(1)
+  expect(claimsOf(mockDb)).toEqual([expect.objectContaining({ status: 'sent' })])
+  expect(mockDb.calls.close).toBe(2)
+})
+
+test('a claim error that is not a duplicate key, with no claim on file, answers 500 and sends nothing', async () => {
+  mockDb = fakeDb()
+  const real = mockDb.client.collection
+  mockDb.client.collection = name => {
+    const c = real(name)
+    if (name === 'order_claims') c.updateOne = async () => { throw new Error('service unavailable') }
+    return c
+  }
+  const res = await main({ ...base, ...event })
+  expect(res).toEqual({ statusCode: 500, body: { error: 'service unavailable' } })
+  expect(global.fetch).not.toHaveBeenCalled()
+})
+
+test.each([
+  ['an operator object', { $ne: null }],
+  ['a number', 201],
+  ['an empty string', ''],
+  ['a string with whitespace', '0000 201'],
+  ['a string over 64 characters', 'x'.repeat(65)]
+])('increment_id as %s: 400, and no database or ERP call', async (_name, increment_id) => {
+  mockDb = fakeDb()
+  const res = await main({ ...base, data: { value: { increment_id, grand_total: '5' } } })
+  expect(res).toEqual({ statusCode: 400, body: { error: 'no order number' } })
+  expect(mockDb.calls.init).toHaveLength(0)
+  expect(global.fetch).not.toHaveBeenCalled()
+})
+
+test('skip and in-progress logs carry the message only, never the database error', async () => {
+  const info = jest.fn()
+  const sdk = require('@adobe/aio-sdk')
+  const spy = jest.spyOn(sdk.Core, 'Logger').mockReturnValue({ info, warn: info, error: info, debug: () => {} })
+  mockDb = await dbWithIndex()
+  await main({ ...base, ...event })
+  await main({ ...base, ...event })
+  mockDb = await withClaim('sending', minutesAgo(1))
+  await main({ ...base, ...event })
+  spy.mockRestore()
+  expect(info.mock.calls).toEqual([
+    ['order 000000201 already claimed (sent)'],
+    ['order 000000201 already claimed (sending)']
+  ])
 })
 
 test('error logs carry only the message: no stack, no object, no ERP response body', async () => {

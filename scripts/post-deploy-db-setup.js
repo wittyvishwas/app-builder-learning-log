@@ -15,6 +15,11 @@ const INDEXES = {
     { name: 'sku_1_at_-1', spec: { sku: 1, at: -1 }, options: {} },
     { name: 'order_1_status_1', spec: { order: 1, status: 1 }, options: {} }
   ],
+  // One claim per order, so two deliveries of the same order can't both send (actions/order-placed).
+  // Not on export_runs: Ep 4 rows have no `order` field, and a unique index treats missing values as equal.
+  order_claims: [
+    { name: 'order_1', spec: { order: 1 }, options: { unique: true } }
+  ],
   stuck_alerts: [
     { name: 'order_1', spec: { order: 1 }, options: { unique: true } },
     { name: 'handled_1_at_-1', spec: { handled: 1, at: -1 }, options: {} }
