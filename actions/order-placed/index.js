@@ -9,7 +9,7 @@
  * `order`, and an upsert that matches nothing claimable tries to insert, which the index rejects when a
  * `sent` or fresh `sending` claim exists. Only the delivery that wins the claim calls the ERP.
  *   - claim won: send, upsert the sent row in export_runs (Ep 4 and Ep 10 read it), mark the claim `sent`.
- *   - claim lost: `sent` answers 200 skipped; a fresh `sending` answers 503 so I/O Events retries (it retries 429 and 5xx, never a 409).
+ *   - claim lost: `sent` answers 200 skipped; a fresh `sending` answers 503 so I/O Events retries (it retries 429 and 5xx except 505, never a 409).
  *   - send failed: the claim becomes `failed` and the answer is 500, so a redelivery can claim it again.
  *   - a `sending` claim older than STALE_SENDING_MS (a run that died mid-send) is claimable again.
  * If the sent row or the `sent` mark fails after a successful send, the claim stays `sending` and becomes
