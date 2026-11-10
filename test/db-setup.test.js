@@ -125,10 +125,16 @@ test('run() works with only AIO_runtime_namespace, which aio app use writes', as
   expect(mockDb.calls.close).toBe(1)
 })
 
-test('run() prefers AIO_RUNTIME_NAMESPACE when both namespace variables are set', async () => {
+test("uppercase wins when both are non-empty, as aio's dotenv would", async () => {
   mockDb = fakeDb()
   await run({ ...env, AIO_runtime_namespace: '5678-aio-stage' })
   expect(mockDb.calls.init[0].ow).toEqual({ namespace: '1234-demo-stage' })
+})
+
+test('run() falls back to AIO_runtime_namespace when the uppercase key is empty', async () => {
+  mockDb = fakeDb()
+  await run({ ...env, AIO_RUNTIME_NAMESPACE: '', AIO_runtime_namespace: '5678-aio-stage' })
+  expect(mockDb.calls.init[0].ow).toEqual({ namespace: '5678-aio-stage' })
 })
 
 test('run() closes the client even when creating an index fails', async () => {

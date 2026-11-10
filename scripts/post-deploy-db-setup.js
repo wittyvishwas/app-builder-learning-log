@@ -82,7 +82,8 @@ async function getToken (env) {
 async function run (env = process.env) {
   const libDb = require('@adobe/aio-lib-db')
   // aio-lib-db falls back to __OW_NAMESPACE, which is not set when aio runs this hook as a child process.
-  // AIO_runtime_namespace is what `aio app use` writes (and what the deploy targets); AIO_RUNTIME_NAMESPACE overrides it.
+  // aio reads AIO_RUNTIME_NAMESPACE and AIO_runtime_namespace as one setting (the deploy target), so both spellings work.
+  // The fallback covers an empty uppercase key and running this hook with `node` directly.
   const namespace = env.AIO_RUNTIME_NAMESPACE || env.AIO_runtime_namespace
   if (!namespace) throw new Error('Missing in .env: AIO_runtime_namespace (written by aio app use) or AIO_RUNTIME_NAMESPACE')
   const token = await getToken(env)
