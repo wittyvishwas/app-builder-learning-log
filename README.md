@@ -238,6 +238,14 @@ The reviews endpoint must answer `/reviews?skus=A,B` with one list per SKU, in t
 
 **What's verified.** The registration shape, `list-alerts`, `mark-handled`, `list-deliveries`, `retry-delivery` (including the next retry run picking the re-queued row up) and the `stuck_alerts` writes are unit-tested with the database faked. The React page is **not** covered by `npm test` or CI (it needs the aio CLI, a bundler and a Commerce admin); it has to be checked with `aio app dev`, and has not been. Its dependencies (React, React Spectrum, UIX, exc-app) are `devDependencies` only: the actions don't need them. The page needs them to build, so run `aio app build` or `aio app dev` after a full `npm install`, not `--omit=dev`.
 
+## Test helper: fake ERP
+
+`actions/fake-erp` (action `dev/fake-erp`) is a small fake ERP, so a real-workspace run has something to send orders to. It is a test helper, not part of the order-sync design. `POST /orders` stores the order in State for seven days (`201`, or `409` if it already has that order number); `GET /orders?order=<n>` reads it back (`200` or `404`). Every request needs `Authorization: Bearer <FAKE_ERP_API_KEY>`; an unset, empty or shorter-than-16-character key refuses everything with `401`. An order number outside `[A-Za-z0-9_.-]{1,64}` gets `400`.
+
+It is a public web action and deploys with every `aio app deploy`, including a Production workspace. Remove the `dev` package from `app.config.yaml` (or `aio app undeploy`) when you don't need it.
+
+To use it, set `FAKE_ERP_API_KEY` and `ERP_API_KEY` to the same value in `.env` and point `ERP_API_URL` at the action: `https://<namespace>.adobeioruntime.net/api/v1/web/dev/fake-erp`.
+
 ## What's verified
 
 Each piece is marked by how far it has been proven:
@@ -272,6 +280,7 @@ actions/
   sync-log/index.js             # Ep 4: Database Storage
   order-placed/index.js         # Ep 6: Commerce event handler, claims each order in order_claims
   cart-check/index.js           # Ep 7: webhook that verifies Commerce's signature and blocks restricted SKUs
+  fake-erp/index.js             # test helper: fake ERP web action (dev/fake-erp)
 src/commerce-backend-ui-1/      # Ep 9: Admin UI SDK v1 extension (ext.config.yaml, actions/registration|list-alerts|mark-handled|list-deliveries|retry-delivery, web-src/)
 commerce/
   webhooks.xml                  # Ep 7: webhook declaration (PaaS module etc/; SaaS: System > Webhooks)

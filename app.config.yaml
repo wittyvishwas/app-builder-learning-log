@@ -126,6 +126,21 @@ application:
             annotations:
               raw-http: true
               final: true
+      # Test helper, not part of the order-sync design: a fake ERP as a public web action (actions/fake-erp), so a
+      # real-workspace run has an ERP to send to. It deploys with every `aio app deploy`, Production workspaces too.
+      dev:
+        license: Apache-2.0
+        actions:
+          fake-erp:
+            function: actions/fake-erp/index.js
+            runtime: nodejs:20
+            web: 'yes'
+            inputs:
+              LOG_LEVEL: info
+              FAKE_ERP_API_KEY: $FAKE_ERP_API_KEY
+            annotations:
+              require-adobe-auth: false
+              final: true
 # Ep 9: Admin UI SDK v1 extension (the page in the Commerce admin). Layout copied from Adobe's sample
 # adobe-commerce-samples/admin-ui-sdk/v1/menu/custom-menu. Version 2 would be commerce/backend-ui/2.
 extensions:
