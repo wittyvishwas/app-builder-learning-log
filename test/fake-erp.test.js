@@ -3,12 +3,24 @@
  */
 const mockStore = new Map()
 const mockPuts = []
+const mockFail = { init: false, get: false, put: false }
+const mockLogs = []
+jest.mock('@adobe/aio-sdk', () => ({
+  Core: {
+    Logger: () => ({
+      info: m => mockLogs.push(m), warn: m => mockLogs.push(m), error: m => mockLogs.push(m), debug: m => mockLogs.push(m)
+    })
+  }
+}))
 jest.mock('@adobe/aio-lib-state', () => ({
   init: async () => {
+    if (mockFail.init) throw new Error('init boom 000000201')
     const state = require('./helpers').fakeState(mockStore)
     return {
       ...state,
+      get: async k => { if (mockFail.get) throw new Error('get boom'); return state.get(k) },
       put: async (k, v, opts) => {
+        if (mockFail.put) throw new Error(`put boom ${v}`)
         if (typeof v !== 'string') throw new Error('aio-lib-state: value must be a string')
         mockPuts.push([k, v, opts])
         return state.put(k, v, opts)
@@ -22,9 +34,8 @@ const { sendOrder } = require('../actions/order-sync/erp')
 
 const KEY = 'k'.repeat(16)
 const realFetch = global.fetch
-const realLog = console.log
-beforeEach(() => { mockStore.clear(); mockPuts.length = 0; console.log = () => {} })
-afterEach(() => { global.fetch = realFetch; console.log = realLog })
+beforeEach(() => { mockStore.clear(); mockPuts.length = 0; mockLogs.length = 0; Object.assign(mockFail, { init: false, get: false, put: false }) })
+afterEach(() => { global.fetch = realFetch })
 
 const call = (method, extra = {}, { key = KEY, bearer = KEY, path = '/orders' } = {}) => main({
   FAKE_ERP_API_KEY: key,
@@ -114,6 +125,38 @@ test('404 for any other path or method', async () => {
   expect((await call('delete', { orderNumber: '000000201' })).statusCode).toBe(404)
   expect((await call('put', { orderNumber: '000000201' })).statusCode).toBe(404)
   expect(mockStore.size).toBe(0)
+})
+
+test('503 with a fixed body when State fails (init, get, put), and no payload in the logs', async () => {
+  await post({ orderNumber: 'known-1' })
+  for (const [step, req] of [['init', () => post()], ['get', () => call('get', { order: 'known-1' })], ['put', () => post()]]) {
+    mockFail.init = mockFail.get = mockFail.put = false
+    mockFail[step] = true
+    const res = await req()
+    expect(res.statusCode).toBe(503)
+    expect(res.body).toEqual({ error: 'storage unavailable' })
+  }
+  expect(mockLogs.join('\n')).not.toMatch(/boom|grandTotal|119/)
+  mockFail.init = mockFail.get = mockFail.put = false
+  mockStore.set('fake-erp.corrupt', 'not json')
+  const res = await call('get', { order: 'corrupt' })
+  expect(res.statusCode).toBe(503)
+  expect(res.body).toEqual({ error: 'storage unavailable' })
+})
+
+test('413 when the stored value is over 64 KB, nothing stored', async () => {
+  const res = await post({ note: 'x'.repeat(64 * 1024) })
+  expect(res.statusCode).toBe(413)
+  expect(mockStore.size).toBe(0)
+  expect(mockPuts.length).toBe(0)
+  expect((await post({ note: 'x'.repeat(60 * 1024) })).statusCode).toBe(201)
+})
+
+test('a body cannot replace the configured key: FAKE_ERP_API_KEY is final in app.config.yaml', () => {
+  // Runtime refuses to override the inputs of a final action; the action relies on it.
+  const cfg = require('fs').readFileSync(require('path').join(__dirname, '../app.config.yaml'), 'utf8')
+  const block = cfg.slice(cfg.indexOf('fake-erp:'))
+  expect(block).toMatch(/FAKE_ERP_API_KEY: \$FAKE_ERP_API_KEY[\s\S]*final: true/)
 })
 
 test('round trip with erp.js', async () => {
