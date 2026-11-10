@@ -148,6 +148,17 @@ test.each([
   expect(mockDb.calls.close).toBe(0)
 })
 
+test('the 400 path for a nested payload logs the order\'s keys, not the value', async () => {
+  const warn = jest.fn()
+  const sdk = require('@adobe/aio-sdk')
+  const spy = jest.spyOn(sdk.Core, 'Logger').mockReturnValue({ info: () => {}, warn, error: () => {} })
+  mockDb = fakeDb()
+  const res = await main({ ...base, data: { value: { order: { grand_total: 1 } } } })
+  spy.mockRestore()
+  expect(res.statusCode).toBe(400)
+  expect(warn.mock.calls[0][0]).toBe('no order number in event: ["grand_total"]')
+})
+
 test('the 400 path logs only the data keys, never values', async () => {
   const warn = jest.fn()
   const sdk = require('@adobe/aio-sdk')

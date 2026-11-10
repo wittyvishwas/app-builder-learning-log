@@ -59,7 +59,7 @@ async function main (params) {
   // A plain token, so nothing but a string ever reaches a database filter.
   if (typeof id !== 'string' || !/^\S{1,64}$/.test(id)) {
     // Keys only, never values.
-    logger.warn(`no order number in event: ${JSON.stringify(Object.keys(raw && typeof raw === 'object' ? raw : {}))}`)
+    logger.warn(`no order number in event: ${JSON.stringify(Object.keys(order && typeof order === 'object' ? order : {}))}`)
     return { statusCode: 400, body: { error: 'no order number' } }
   }
 

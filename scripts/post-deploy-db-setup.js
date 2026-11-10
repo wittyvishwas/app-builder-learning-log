@@ -48,14 +48,20 @@ async function ensureIndexes (client) {
 // IMS_OAUTH_S2S_SCOPES is either a JSON array (what `aio app use` writes) or a comma-separated list (.env.dist).
 function parseScopes (value) {
   const text = String(value).trim()
-  if (!text.startsWith('[')) return text.split(',').map(s => s.trim()).filter(Boolean)
-  let list
-  try {
-    list = JSON.parse(text)
-  } catch (e) {
-    throw new Error(`IMS_OAUTH_S2S_SCOPES is not valid JSON (${e.message}); use a JSON array or a comma-separated list`)
+  let scopes
+  if (!text.startsWith('[')) {
+    scopes = text.split(',').map(s => s.trim()).filter(Boolean)
+  } else {
+    let list
+    try {
+      list = JSON.parse(text)
+    } catch (e) {
+      throw new Error(`IMS_OAUTH_S2S_SCOPES is not valid JSON (${e.message}); use a JSON array or a comma-separated list`)
+    }
+    scopes = Array.isArray(list) ? list.filter(s => typeof s === 'string').map(s => s.trim()).filter(Boolean) : []
   }
-  return list.filter(s => typeof s === 'string').map(s => s.trim()).filter(Boolean)
+  if (!scopes.length) throw new Error('IMS_OAUTH_S2S_SCOPES has no scopes (it is empty or "[]"); set a JSON array or a comma-separated list')
+  return scopes
 }
 
 // The same OAuth server-to-server credential the workspace uses (.env, see .env.dist).

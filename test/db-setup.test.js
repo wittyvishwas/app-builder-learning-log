@@ -97,6 +97,12 @@ test('parseScopes names IMS_OAUTH_S2S_SCOPES when the JSON is invalid', () => {
   expect(() => parseScopes('["AdobeID","openid"')).toThrow(/^IMS_OAUTH_S2S_SCOPES is not valid JSON/)
 })
 
+test('parseScopes names IMS_OAUTH_S2S_SCOPES when no scope is left', () => {
+  expect(() => parseScopes('[]')).toThrow(/IMS_OAUTH_S2S_SCOPES has no scopes/)
+  expect(() => parseScopes('')).toThrow(/IMS_OAUTH_S2S_SCOPES has no scopes/)
+  expect(() => parseScopes('["", 3]')).toThrow(/IMS_OAUTH_S2S_SCOPES has no scopes/)
+})
+
 test('run() passes JSON-array scopes to the token call as separate scopes', async () => {
   mockDb = fakeDb()
   mockAuth.mockClear()
