@@ -58,9 +58,8 @@ async function main (params) {
   const id = order.increment_id
   // A plain token, so nothing but a string ever reaches a database filter.
   if (typeof id !== 'string' || !/^\S{1,64}$/.test(id)) {
-    // Keys only, never values. The second list is the keys of data.value, when that is a different object.
-    const valueKeys = raw !== params.data && raw && typeof raw === 'object' ? ` value keys: ${JSON.stringify(Object.keys(raw))}` : ''
-    logger.warn(`no order number in event: ${JSON.stringify(Object.keys(params.data || {}))}${valueKeys}`)
+    // Keys only, never values.
+    logger.warn(`no order number in event: ${JSON.stringify(Object.keys(raw && typeof raw === 'object' ? raw : {}))}`)
     return { statusCode: 400, body: { error: 'no order number' } }
   }
 
