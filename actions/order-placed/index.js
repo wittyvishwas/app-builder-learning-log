@@ -1,8 +1,8 @@
 /*
  * Ep 6: replace an observer with a Commerce event. Adobe I/O Events delivers
- * observer.sales_order_place_after (subscribed with only increment_id and grand_total) to this action.
- * Commerce nests the order under `order` for this event (it is dispatched as ['order' => $order]), so the
- * subscription fields are `order.increment_id` and `order.grand_total`. The flat shape is still read.
+ * observer.sales_order_place_after to this action, subscribed with only `order.increment_id` and
+ * `order.grand_total`: Commerce nests the order under `order` for this event (it is dispatched as
+ * ['order' => $order]). The flat shape is still read.
  * Needs include-ims-credentials: true in app.config.yaml, like sync-log.
  *
  * Commerce retries delivery, and two deliveries of the same order can arrive together, so "look, then send"
@@ -58,7 +58,9 @@ async function main (params) {
   const id = order.increment_id
   // A plain token, so nothing but a string ever reaches a database filter.
   if (typeof id !== 'string' || !/^\S{1,64}$/.test(id)) {
-    logger.warn(`no order number in event: ${JSON.stringify(Object.keys(params.data || {}))}`)
+    // Keys only, never values. The second list is the keys of data.value, when that is a different object.
+    const valueKeys = raw !== params.data && raw && typeof raw === 'object' ? ` value keys: ${JSON.stringify(Object.keys(raw))}` : ''
+    logger.warn(`no order number in event: ${JSON.stringify(Object.keys(params.data || {}))}${valueKeys}`)
     return { statusCode: 400, body: { error: 'no order number' } }
   }
 

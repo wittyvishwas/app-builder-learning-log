@@ -14,7 +14,9 @@ const store = require('../order-sync/store')
 
 function orderFromEvent (params) {
   // I/O Events delivers the Commerce payload under data.value; accept a bare order for manual runs.
-  return params.data?.value || params.value || (params.increment_id ? params : null)
+  const raw = params.data?.value || params.value || (params.increment_id ? params : null)
+  // Commerce nests the order under `order` for this event; a flat payload (the old shape) has no such object.
+  return (raw && typeof raw.order === 'object' && raw.order !== null) ? raw.order : raw
 }
 
 async function main (params) {

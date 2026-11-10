@@ -1,6 +1,6 @@
 /*
- * Map a Commerce order (the `data.value` of an I/O Events `observer.sales_order_place_after`
- * event, or a REST order) to the ERP's order shape. Pure function: no I/O, easy to test.
+ * Map a Commerce order (the `order` object inside the `data.value` of an I/O Events
+ * `observer.sales_order_place_after` event, or a REST order) to the ERP's order shape. Pure function: no I/O, easy to test.
  * The ERP shape here is generic; change this file, not the delivery code, for your ERP.
  */
 

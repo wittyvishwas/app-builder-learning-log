@@ -61,6 +61,27 @@ test('exports the order from an I/O Events payload and records one sent row, lik
   expect(mockDb.calls.close).toBe(1)
 })
 
+test('exports a nested payload (data.value.order) exactly like the flat one', async () => {
+  global.fetch = scriptedFetch([201])
+  const res = await main({ ...params, event_id: 'e1', data: { value: { order } } })
+  expect(res).toEqual({ statusCode: 200, body: { orderNumber: '000000201', outcome: 'exported' } })
+  expect(rows()).toHaveLength(1)
+  expect(Object.keys(row('000000201')).sort()).toEqual(['at', 'order', 'status'])
+  expect(row('000000201').status).toBe('sent')
+})
+
+test.each([
+  ['an empty nested order', { value: { order: {} } }],
+  ['an empty value', { value: {} }]
+])('%s is acknowledged and ignored', async (_name, data) => {
+  global.fetch = scriptedFetch([201])
+  const res = await main({ ...params, data })
+  expect(res.statusCode).toBe(200)
+  expect(res.body.outcome).toBe('ignored')
+  expect(global.fetch).not.toHaveBeenCalled()
+  expect(mockDb.calls.init).toHaveLength(0)
+})
+
 test('a redelivered event is skipped, not sent twice', async () => {
   global.fetch = scriptedFetch([201])
   await main(event)
