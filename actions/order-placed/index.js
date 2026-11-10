@@ -1,6 +1,8 @@
 /*
  * Ep 6: replace an observer with a Commerce event. Adobe I/O Events delivers
  * observer.sales_order_place_after (subscribed with only increment_id and grand_total) to this action.
+ * Commerce nests the order under `order` for this event (it is dispatched as ['order' => $order]), so the
+ * subscription fields are `order.increment_id` and `order.grand_total`. The flat shape is still read.
  * Needs include-ims-credentials: true in app.config.yaml, like sync-log.
  *
  * Commerce retries delivery, and two deliveries of the same order can arrive together, so "look, then send"
@@ -50,7 +52,9 @@ function isDuplicateKeyError (err) {
 
 async function main (params) {
   const logger = Core.Logger('order-placed', { level: params.LOG_LEVEL || 'info' })
-  const order = params.data?.value ?? params.data ?? {}
+  const raw = params.data?.value ?? params.data ?? {}
+  // The real payload nests the order under `order`; a flat payload (the old shape) has no such object.
+  const order = (raw && typeof raw.order === 'object' && raw.order !== null) ? raw.order : raw
   const id = order.increment_id
   // A plain token, so nothing but a string ever reaches a database filter.
   if (typeof id !== 'string' || !/^\S{1,64}$/.test(id)) {

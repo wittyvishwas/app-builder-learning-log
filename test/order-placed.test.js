@@ -110,6 +110,31 @@ test('params.data without .value works', async () => {
   expect(mockDb.data.get('export_runs')[0]).toMatchObject({ order: '000000202', status: 'sent' })
 })
 
+test('the nested payload Commerce sends (data.value.order) sends the order and writes the sent row', async () => {
+  mockDb = fakeDb()
+  const res = await main({ ...base, data: { value: { order: { increment_id: '100000001', grand_total: 12 } } } })
+  expect(res).toEqual({ statusCode: 200, body: { sent: '100000001' } })
+  expect(global.fetch).toHaveBeenCalledTimes(1)
+  const [url, init] = global.fetch.mock.calls[0]
+  expect(url).toBe('https://erp.example.com/orders')
+  expect(init.headers['Idempotency-Key']).toBe('100000001')
+  expect(JSON.parse(init.body)).toMatchObject({ orderNumber: '100000001', increment_id: '100000001', grand_total: 12 })
+  expect(mockDb.data.get('export_runs')).toEqual([expect.objectContaining({ order: '100000001', status: 'sent' })])
+  expect(mockDb.calls.close).toBe(1)
+})
+
+test.each([
+  ['an empty order', { data: { value: { order: {} } } }],
+  ['an empty value (fields did not match)', { data: { value: {} } }]
+])('nested payload with %s: 400, and no token, database or ERP call', async (_name, extra) => {
+  mockDb = fakeDb()
+  const res = await main({ ...base, ...extra })
+  expect(res).toEqual({ statusCode: 400, body: { error: 'no order number' } })
+  expect(mockAuth).not.toHaveBeenCalled()
+  expect(mockDb.calls.init).toHaveLength(0)
+  expect(global.fetch).not.toHaveBeenCalled()
+})
+
 test.each([
   ['no data', {}],
   ['data without an order number', { data: { value: { grand_total: '5', customer_email: 'jane@example.com' } } }]
