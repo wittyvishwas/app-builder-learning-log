@@ -110,11 +110,25 @@ test('run() passes JSON-array scopes to the token call as separate scopes', asyn
   expect(mockAuth.mock.calls[0][0].scopes).toEqual(['AdobeID', 'openid', 'adobeio.abdata.read'])
 })
 
-test('run() needs AIO_RUNTIME_NAMESPACE, because the hook has no __OW_NAMESPACE', async () => {
+test('run() needs a namespace, because the hook has no __OW_NAMESPACE', async () => {
   mockDb = fakeDb()
   const { AIO_RUNTIME_NAMESPACE, ...rest } = env
-  await expect(run(rest)).rejects.toThrow('AIO_RUNTIME_NAMESPACE')
+  await expect(run(rest)).rejects.toThrow('Missing in .env: AIO_runtime_namespace (written by aio app use) or AIO_RUNTIME_NAMESPACE')
   expect(mockDb.calls.init).toEqual([])
+})
+
+test('run() works with only AIO_runtime_namespace, which aio app use writes', async () => {
+  mockDb = fakeDb()
+  const { AIO_RUNTIME_NAMESPACE, ...rest } = env
+  await run({ ...rest, AIO_runtime_namespace: '5678-aio-stage' })
+  expect(mockDb.calls.init).toEqual([{ token: 'tok-abc', region: 'emea', ow: { namespace: '5678-aio-stage' } }])
+  expect(mockDb.calls.close).toBe(1)
+})
+
+test('run() prefers AIO_RUNTIME_NAMESPACE when both namespace variables are set', async () => {
+  mockDb = fakeDb()
+  await run({ ...env, AIO_runtime_namespace: '5678-aio-stage' })
+  expect(mockDb.calls.init[0].ow).toEqual({ namespace: '1234-demo-stage' })
 })
 
 test('run() closes the client even when creating an index fails', async () => {

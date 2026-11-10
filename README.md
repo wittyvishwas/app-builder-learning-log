@@ -82,7 +82,7 @@ Ep 4 adds the document database for Runtime actions (`@adobe/aio-lib-db`) next t
 2. A new access token was generated after adding it (the OAuth server-to-server credential).
 3. The action has `include-ims-credentials: true`, as `order-sync/sync-log` does in `app.config.yaml`. The action then calls `Core.AuthClient.generateAccessToken(params)`.
 
-**Indexes.** `hooks.post-app-deploy` runs `scripts/post-deploy-db-setup.js` after every deploy. It reads the workspace's OAuth credentials from `.env` (`IMS_OAUTH_S2S_CLIENT_ID`, `_CLIENT_SECRET`, `_ORG_ID`, `_SCOPES`) plus `AIO_RUNTIME_NAMESPACE` (see `.env.dist`; `aio where` shows only the global Developer Console selection, so check the deploy namespace with `aio rt property get --namespace` run in the repo, or `AIO_RUNTIME_NAMESPACE` in `.env`). The namespace is passed to `init` explicitly, because aio-lib-db otherwise reads `__OW_NAMESPACE`, which isn't set when aio runs a hook, gets a token, and creates the indexes below. Indexes that exist are skipped, so a second deploy changes nothing. `ensureIndexes(client)` is the pure part and is what the tests call. The hook is written as `node scripts/post-deploy-db-setup.js`, so it doesn't depend on the file's execute bit.
+**Indexes.** `hooks.post-app-deploy` runs `scripts/post-deploy-db-setup.js` after every deploy. It reads the workspace's OAuth credentials from `.env` (`IMS_OAUTH_S2S_CLIENT_ID`, `_CLIENT_SECRET`, `_ORG_ID`, `_SCOPES`) plus the namespace: `AIO_runtime_namespace`, which `aio app use` writes (it is also the deploy target), or the `AIO_RUNTIME_NAMESPACE` override (see `.env.dist`; `aio where` shows only the global Developer Console selection, so check the deploy namespace with `aio rt property get --namespace` run in the repo). The namespace is passed to `init` explicitly, because aio-lib-db otherwise reads `__OW_NAMESPACE`, which isn't set when aio runs a hook, gets a token, and creates the indexes below. Indexes that exist are skipped, so a second deploy changes nothing. `ensureIndexes(client)` is the pure part and is what the tests call. The hook is written as `node scripts/post-deploy-db-setup.js`, so it doesn't depend on the file's execute bit.
 
 **Look inside without code:**
 
@@ -278,7 +278,7 @@ npm install
 npm test
 cp .env.dist .env        # fill in; never commit .env or .aio
 aio app use <your-workspace>.json
-aio rt property get --namespace   # check the deploy namespace before every deploy (run in the repo; or AIO_RUNTIME_NAMESPACE in .env). aio where shows only the global selection.
+aio rt property get --namespace   # check the deploy namespace before every deploy (run in the repo; or AIO_runtime_namespace in .env). aio where shows only the global selection.
 aio app deploy
 aio rt action invoke ops/stuck-orders --result   # run the Ep 3 job once by hand
 ```
