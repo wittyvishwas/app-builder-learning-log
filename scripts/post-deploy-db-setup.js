@@ -45,6 +45,19 @@ async function ensureIndexes (client) {
   return { created, skipped }
 }
 
+// IMS_OAUTH_S2S_SCOPES is either a JSON array (what `aio app use` writes) or a comma-separated list (.env.dist).
+function parseScopes (value) {
+  const text = String(value).trim()
+  if (!text.startsWith('[')) return text.split(',').map(s => s.trim()).filter(Boolean)
+  let list
+  try {
+    list = JSON.parse(text)
+  } catch (e) {
+    throw new Error(`IMS_OAUTH_S2S_SCOPES is not valid JSON (${e.message}); use a JSON array or a comma-separated list`)
+  }
+  return list.filter(s => typeof s === 'string').map(s => s.trim()).filter(Boolean)
+}
+
 // The same OAuth server-to-server credential the workspace uses (.env, see .env.dist).
 async function getToken (env) {
   const { Core } = require('@adobe/aio-sdk')
@@ -55,7 +68,7 @@ async function getToken (env) {
     clientId: env.IMS_OAUTH_S2S_CLIENT_ID,
     clientSecret: env.IMS_OAUTH_S2S_CLIENT_SECRET,
     orgId: env.IMS_OAUTH_S2S_ORG_ID,
-    scopes: env.IMS_OAUTH_S2S_SCOPES.split(',').map(s => s.trim()).filter(Boolean)
+    scopes: parseScopes(env.IMS_OAUTH_S2S_SCOPES)
   })
   return token.access_token
 }
@@ -76,7 +89,7 @@ async function run (env = process.env) {
   }
 }
 
-module.exports = { ensureIndexes, INDEXES, run }
+module.exports = { ensureIndexes, INDEXES, parseScopes, run }
 
 if (require.main === module) {
   const envFile = path.join(process.cwd(), '.env')

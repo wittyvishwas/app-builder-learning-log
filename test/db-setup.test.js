@@ -8,7 +8,7 @@ const mockAuth = jest.fn(async () => ({ access_token: 'tok-abc' }))
 jest.mock('@adobe/aio-sdk', () => ({ Core: { AuthClient: { generateAccessToken: (...a) => mockAuth(...a) } } }))
 
 const { fakeDb } = require('./helpers')
-const { ensureIndexes, run } = require('../scripts/post-deploy-db-setup')
+const { ensureIndexes, parseScopes, run } = require('../scripts/post-deploy-db-setup')
 
 const names = (db, coll) => db.indexes.get(coll).map(i => i.name).filter(n => n !== '_id_')
 
@@ -81,6 +81,27 @@ test('run() names the missing .env variables and never touches the database', as
   mockDb = fakeDb()
   await expect(run({ IMS_OAUTH_S2S_CLIENT_ID: 'id', AIO_RUNTIME_NAMESPACE: 'ns' })).rejects.toThrow(/IMS_OAUTH_S2S_CLIENT_SECRET.*IMS_OAUTH_S2S_ORG_ID.*IMS_OAUTH_S2S_SCOPES/)
   expect(mockDb.calls.init).toEqual([])
+})
+
+test('parseScopes reads the JSON array that aio app use writes', () => {
+  expect(parseScopes('["AdobeID","openid","adobeio.abdata.read"]')).toEqual(['AdobeID', 'openid', 'adobeio.abdata.read'])
+  expect(parseScopes(' [ " AdobeID " , "" , "openid" ] ')).toEqual(['AdobeID', 'openid'])
+})
+
+test('parseScopes reads the comma-separated list from .env.dist', () => {
+  expect(parseScopes('AdobeID, openid ,adobeio_api,')).toEqual(['AdobeID', 'openid', 'adobeio_api'])
+  expect(parseScopes('AdobeID')).toEqual(['AdobeID'])
+})
+
+test('parseScopes names IMS_OAUTH_S2S_SCOPES when the JSON is invalid', () => {
+  expect(() => parseScopes('["AdobeID","openid"')).toThrow(/^IMS_OAUTH_S2S_SCOPES is not valid JSON/)
+})
+
+test('run() passes JSON-array scopes to the token call as separate scopes', async () => {
+  mockDb = fakeDb()
+  mockAuth.mockClear()
+  await run({ ...env, IMS_OAUTH_S2S_SCOPES: '["AdobeID","openid","adobeio.abdata.read"]' })
+  expect(mockAuth.mock.calls[0][0].scopes).toEqual(['AdobeID', 'openid', 'adobeio.abdata.read'])
 })
 
 test('run() needs AIO_RUNTIME_NAMESPACE, because the hook has no __OW_NAMESPACE', async () => {
