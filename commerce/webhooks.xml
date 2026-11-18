@@ -6,19 +6,23 @@
   On Adobe Commerce as a Cloud Service there is no module: enter the same settings in the admin
   under System > Webhooks.
 
+  observer.sales_quote_add_item is dispatched in Quote::addItem(), which every channel uses. GraphQL and REST
+  were verified blocked on Stage; the storefront follows from the source and was not run with this hook.
+  observer.checkout_cart_product_add_before runs only in the storefront cart controller.
+
   required="false" fails open: if the endpoint times out or errors, Commerce logs it and carries on.
   For a legal or financial rule use required="true" (fails closed), with a short timeout and monitoring.
 -->
 <config xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
         xsi:noNamespaceSchemaLocation="urn:magento:module:Magento_AdobeCommerceWebhooks:etc/webhooks.xsd">
-  <method name="observer.checkout_cart_product_add_before" type="before">
+  <method name="observer.sales_quote_add_item" type="before">
     <hooks>
       <batch name="cart_rules">
         <hook name="restricted_sku" url="{env:CART_CHECK_URL}"
               timeout="2000" softTimeout="500" required="false"
               fallbackErrorMessage="We couldn't check this item. Please try again.">
           <fields>
-            <field name="product.sku" source="data.product.sku"/>
+            <field name="product.sku" source="data.quote_item.sku"/>
           </fields>
         </hook>
       </batch>

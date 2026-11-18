@@ -1,18 +1,18 @@
 <?xml version="1.0"?>
-<!-- Module default = Deploy C (final): the real cart-check, required=false, softTimeout=500, MMTEST- SKUs only (remove the MMTEST- rule for real use). CART_CHECK_URL is the web URL of webhooks/cart-check. -->
+<!-- Module default: the real cart-check on observer.sales_quote_add_item, which blocks GraphQL and REST (verified on Stage) and, from the source, the storefront too, because Quote::addItem() is used by every channel (observer.checkout_cart_product_add_before runs only in the storefront cart controller). required=false, softTimeout=500, MMTEST- SKUs only (remove the MMTEST- rule for real use). CART_CHECK_URL is the web URL of webhooks/cart-check. -->
 <config xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
         xsi:noNamespaceSchemaLocation="urn:magento:module:Magento_AdobeCommerceWebhooks:etc/webhooks.xsd">
-  <method name="observer.checkout_cart_product_add_before" type="before">
+  <method name="observer.sales_quote_add_item" type="before">
     <hooks>
       <batch name="cart_rules">
         <hook name="restricted_sku" url="{env:CART_CHECK_URL}"
               timeout="2000" softTimeout="500" required="false"
               fallbackErrorMessage="We couldn't check this item. Please try again.">
           <fields>
-            <field name="product.sku" source="data.product.sku"/>
+            <field name="product.sku" source="data.quote_item.sku"/>
           </fields>
           <rules>
-            <rule field="data.product.sku" operator="regex" value="/^MMTEST-/"/>
+            <rule field="data.quote_item.sku" operator="regex" value="/^MMTEST-/"/>
           </rules>
         </hook>
       </batch>

@@ -1,5 +1,5 @@
 /*
- * Ep 7: replace a plugin with a webhook. Commerce calls this action from observer.checkout_cart_product_add_before
+ * Ep 7: replace a plugin with a webhook. Commerce calls this action from observer.sales_quote_add_item
  * and waits for the answer: { op: 'success' } lets the item in, { op: 'exception' } stops it.
  *
  * The URL is public, so the call is verified first: Commerce signs the request and sends the signature (base64) in
@@ -7,10 +7,10 @@
  * Adobe's App Builder sample verifies over that body as received, the base64 string, and only then decodes it
  * (JSON.parse(atob(params.__ow_body))); its Express sample verifies over Buffer.from(JSON.stringify(body)).toString('base64').
  * So: a base64 __ow_body is verified as-is; if it arrives as JSON text instead, it is verified over its base64
- * encoding. Either way the same body is then decoded and parsed. Not verified against a real Commerce yet.
+ * encoding. Either way the same body is then decoded and parsed. Verified on a Stage Commerce with dev:run, GraphQL and REST.
  *
  * The hook's field is declared as name="product.sku", and `name` is the path Commerce sends, so the payload is
- * { product: { sku } } (the post's snippet reads data.product.sku, which is the `source` path inside Commerce).
+ * { product: { sku } } (the hook maps source data.quote_item.sku to the field name product.sku).
  *
  * Answers: a missing or invalid signature gives 200 with { op: 'exception' } (a forged call is blocked). A missing or
  * unusable PUBLIC_KEY is our own misconfiguration, so it answers 500: required="false" in webhooks.xml then lets

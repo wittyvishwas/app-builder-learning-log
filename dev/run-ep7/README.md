@@ -1,6 +1,6 @@
 # Ep 7 real-workspace run: scratch action and webhooks.xml variants
 
-Module install steps are in `commerce/CartCheck/README.md`. Run helpers only; none of this is part of the `ep7-webhooks` tag. Run plan steps 1a and 1b. Check the namespace first (`aio rt property get --namespace`).
+Module install steps are in `commerce/CartCheck/README.md`. The variants are the historical runs on `observer.checkout_cart_product_add_before`; the module default is now `observer.sales_quote_add_item`. Run helpers only; none of this is part of the `ep7-webhooks` tag. Run plan steps 1a and 1b. Check the namespace first (`aio rt property get --namespace`).
 
 ## Scratch action
 
@@ -43,7 +43,7 @@ bin/magento webhooks:dev:run observer.checkout_cart_product_add_before:before '{
 The `{env:...}` placeholders are read by PHP at runtime, so the variables must be visible to PHP. On Cloud they are project variables named `env:CART_CHECK_URL` and `env:CART_CHECK_SCRATCH_URL`.
 
 Order: A (cycle the modes, then times) → B (cycle the modes) → C. Every variant only hooks SKUs matching `/^MMTEST-/`.
-Last step of the run: copy `webhooks-C.xml` back, or remove the module (plan section 3).
+Last step of the run: restore the module default (the `observer.sales_quote_add_item` file in `commerce/CartCheck/etc/webhooks.xml`, not a variant), or remove the module (plan section 3). Do not copy `webhooks-C.xml` back: it still hooks the old method.
 
 ## Timeouts and failures
 
