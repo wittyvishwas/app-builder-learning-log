@@ -172,7 +172,7 @@ Once logs leave the terminal, more people read them. Log one line per significan
 
 A Commerce webhook asks your app before Commerce acts, like an out-of-process `before` plugin. `webhooks/cart-check` answers for `observer.checkout_cart_product_add_before`: `{ "op": "success" }` lets the item in, `{ "op": "exception", "message": "..." }` stops it.
 
-`commerce/webhooks.xml` declares the hook. On PaaS it goes in a small module's `etc/` (set `CART_CHECK_URL` to the deployed action's URL), then:
+`commerce/webhooks.xml` declares the hook. On PaaS it goes in a small module's `etc/` (set `CART_CHECK_URL` to the deployed action's URL). `commerce/CartCheck/` is that module, ready to copy (see its README); its hook has a rule, so it fires only for `MMTEST-` SKUs. Then:
 
 ```bash
 bin/magento setup:upgrade
@@ -254,7 +254,7 @@ To use it, set `FAKE_ERP_API_KEY` and `ERP_API_KEY` to the same value in `.env` 
 
 Each piece is marked by how far it has been proven:
 
-- **Unit-tested:** `npm test` (220 tests, run in CI on Node 20 and 24) runs the actions with Commerce, the ERP, the alert webhook, State, Files and Database Storage faked. The database fake (`fakeDb` in `test/helpers.js`) supports equality, `$or`/`$and`, `$ne`, `$in`, `$lt`/`$lte`/`$gt`/`$gte`, `find().sort().limit().toArray()`, `updateOne` with `$set` and upsert, unique indexes, and throws `DbError`; it proves our logic, not the real service. The State fake behaves like aio-lib-state 5.4 where it matters: `ifNotExists` (the retry lock). That proves the mapping, retries, skipping a redelivered event, the retry rows, the lock, time budget, dead rows without personal data, one row per order across sent, retry and dead, no ERP body or error object in any log line, the stuck-order query, alert-then-remember, the report, and the webhook's signature check (real RSA keys, a tampered body, a base64 body, an escaped-newline PEM, a missing key answering 500). It doesn't prove a deployment. The fake ERP test helper is unit-tested the same way (State faked).
+- **Unit-tested:** `npm test` (236 tests, run in CI on Node 20 and 24) runs the actions with Commerce, the ERP, the alert webhook, State, Files and Database Storage faked. The database fake (`fakeDb` in `test/helpers.js`) supports equality, `$or`/`$and`, `$ne`, `$in`, `$lt`/`$lte`/`$gt`/`$gte`, `find().sort().limit().toArray()`, `updateOne` with `$set` and upsert, unique indexes, and throws `DbError`; it proves our logic, not the real service. The State fake behaves like aio-lib-state 5.4 where it matters: `ifNotExists` (the retry lock). That proves the mapping, retries, skipping a redelivered event, the retry rows, the lock, time budget, dead rows without personal data, one row per order across sent, retry and dead, no ERP body or error object in any log line, the stuck-order query, alert-then-remember, the report, and the webhook's signature check (real RSA keys, a tampered body, a base64 body, an escaped-newline PEM, a missing key answering 500). It doesn't prove a deployment. The fake ERP test helper is unit-tested the same way (State faked).
 - **Verified on a real Stage workspace** (two runs, Adobe Commerce on cloud infrastructure with commerce-eventing 1.23.0):
   - `aio app deploy --no-publish -e application` built and deployed the seven application actions on `nodejs:20`.
   - Database Storage was provisioned in `emea`. The post-deploy hook created the six indexes with the real OAuth credential (scopes as the JSON array `aio app use` writes).
@@ -308,9 +308,15 @@ actions/
 src/commerce-backend-ui-1/      # Ep 9: Admin UI SDK v1 extension (ext.config.yaml, actions/registration|list-alerts|mark-handled|list-deliveries|retry-delivery, web-src/)
 commerce/
   webhooks.xml                  # Ep 7: webhook declaration (PaaS module etc/; SaaS: System > Webhooks)
+  CartCheck/                    # Ep 7 run: ready-made module MageMinion_CartCheck (the hook fires only for MMTEST- SKUs)
+  OrderExport/                  # Ep 10 run: the "old" order-export module MageMinion_OrderExport (observer, retry cron)
+dev/
+  run-ep7/                      # Ep 7 run: scratch action, webhooks.xml variants A/B/C, curl recipes
+  run-ep10/                     # Ep 10 run: side-by-side steps
 mesh/                           # Ep 8: mesh config and the reviews response schema
 scripts/
   post-deploy-db-setup.js       # Ep 4: post-app-deploy hook, creates the indexes
+  compare-erp.js                # Ep 10 run: compares the app's and the module's records in the fake ERP
 app.config.yaml                 # actions, two alarm triggers and their rules, database, post-deploy hook
 test/                           # Jest unit tests (everything external faked)
 log/                            # developer-log write-ups, one per tag

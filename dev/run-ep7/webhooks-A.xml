@@ -1,0 +1,24 @@
+<?xml version="1.0"?>
+<!-- Deploy A: scratch action, required=false (fail open), softTimeout=1 and extra logging, MMTEST- SKUs only. -->
+<config xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+        xsi:noNamespaceSchemaLocation="urn:magento:module:Magento_AdobeCommerceWebhooks:etc/webhooks.xsd">
+  <method name="observer.checkout_cart_product_add_before" type="before">
+    <hooks>
+      <batch name="cart_rules">
+        <hook name="restricted_sku" url="{env:CART_CHECK_SCRATCH_URL}"
+              timeout="2000" softTimeout="1" required="false"
+              fallbackErrorMessage="We couldn't check this item. Please try again.">
+          <headers>
+            <header name="x-ow-extra-logging">on</header>
+          </headers>
+          <fields>
+            <field name="product.sku" source="data.product.sku"/>
+          </fields>
+          <rules>
+            <rule field="data.product.sku" operator="regex" value="/^MMTEST-/"/>
+          </rules>
+        </hook>
+      </batch>
+    </hooks>
+  </method>
+</config>

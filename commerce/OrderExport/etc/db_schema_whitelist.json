@@ -1,0 +1,21 @@
+{
+    "mageminion_order_export_retry": {
+        "column": {
+            "entity_id": true,
+            "increment_id": true,
+            "payload": true,
+            "attempts": true,
+            "status": true,
+            "last_error": true,
+            "created_at": true,
+            "updated_at": true
+        },
+        "index": {
+            "MAGEMINION_ORDER_EXPORT_RETRY_STATUS": true
+        },
+        "constraint": {
+            "PRIMARY": true,
+            "MAGEMINION_ORDER_EXPORT_RETRY_INCREMENT_ID": true
+        }
+    }
+}

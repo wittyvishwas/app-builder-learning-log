@@ -1,0 +1,10 @@
+<?xml version="1.0"?>
+<!-- Ep 7: declares the cart-check webhook. Loads after the webhooks module so its webhooks.xml is merged. -->
+<config xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+        xsi:noNamespaceSchemaLocation="urn:magento:framework:Module/etc/module.xsd">
+    <module name="MageMinion_CartCheck">
+        <sequence>
+            <module name="Magento_AdobeCommerceWebhooks"/>
+        </sequence>
+    </module>
+</config>

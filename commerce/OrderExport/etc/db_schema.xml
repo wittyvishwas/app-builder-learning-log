@@ -1,0 +1,23 @@
+<?xml version="1.0"?>
+<schema xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+        xsi:noNamespaceSchemaLocation="urn:magento:framework:Setup/Declaration/Schema/etc/schema.xsd">
+    <table name="mageminion_order_export_retry" resource="default" engine="innodb" comment="Orders the ERP did not accept yet">
+        <column xsi:type="int" name="entity_id" unsigned="true" nullable="false" identity="true" comment="Entity ID"/>
+        <column xsi:type="varchar" name="increment_id" nullable="false" length="50" comment="Order increment ID"/>
+        <column xsi:type="mediumtext" name="payload" nullable="false" comment="JSON body to send"/>
+        <column xsi:type="smallint" name="attempts" unsigned="true" nullable="false" default="0" comment="Sends so far"/>
+        <column xsi:type="varchar" name="status" nullable="false" length="16" default="pending" comment="pending, sent or dead"/>
+        <column xsi:type="text" name="last_error" nullable="true" comment="Last failure"/>
+        <column xsi:type="timestamp" name="created_at" nullable="false" default="CURRENT_TIMESTAMP" comment="Created"/>
+        <column xsi:type="timestamp" name="updated_at" nullable="false" default="CURRENT_TIMESTAMP" on_update="true" comment="Updated"/>
+        <constraint xsi:type="primary" referenceId="PRIMARY">
+            <column name="entity_id"/>
+        </constraint>
+        <constraint xsi:type="unique" referenceId="MAGEMINION_ORDER_EXPORT_RETRY_INCREMENT_ID">
+            <column name="increment_id"/>
+        </constraint>
+        <index referenceId="MAGEMINION_ORDER_EXPORT_RETRY_STATUS" indexType="btree">
+            <column name="status"/>
+        </index>
+    </table>
+</schema>

@@ -1,0 +1,14 @@
+<?xml version="1.0"?>
+<config xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+        xsi:noNamespaceSchemaLocation="urn:magento:module:Magento_Store:etc/config.xsd">
+    <default>
+        <mageminion_order_export>
+            <general>
+                <enabled>0</enabled>
+                <url></url>
+                <api_key></api_key>
+                <test_email_filter></test_email_filter>
+            </general>
+        </mageminion_order_export>
+    </default>
+</config>
