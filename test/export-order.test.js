@@ -368,6 +368,26 @@ test('a retry run that finds its order already sent settles the stray retry row'
   expect((await retry(params)).body).toMatchObject({ skipped: 0 }) // nothing due any more
 })
 
+test('a row that was retry and becomes sent drops lastError and httpStatus, and keeps attempts', async () => {
+  global.fetch = scriptedFetch([503])
+  await main(event)
+  expect(row('000000201')).toMatchObject({ status: 'retry', attempts: 1, httpStatus: 503, lastError: 'ERP returned 503' })
+  global.fetch = scriptedFetch([201])
+  expect((await retry(params)).body).toMatchObject({ exported: 1 })
+  expect(row('000000201')).toMatchObject({ status: 'sent', attempts: 1, lastError: null, httpStatus: null, mapped: null, nextAt: null })
+})
+
+test('settleRetry also clears lastError and httpStatus on a stray retry row', async () => {
+  mockDb = fakeDb(new Map([['export_runs', [
+    { order: '000000201', status: 'retry', attempts: 3, nextAt: '2020-01-01T00:00:00.000Z', lastError: 'x', httpStatus: 0, mapped: { orderNumber: '000000201' }, at: '2020-01-01T00:00:00.000Z' }
+  ]]]))
+  const { connect } = require('../actions/order-sync/store')
+  const { store, close } = await connect({})
+  await store.settleRetry('000000201')
+  await close()
+  expect(row('000000201')).toMatchObject({ status: 'sent', attempts: 3, lastError: null, httpStatus: null, mapped: null, nextAt: null })
+})
+
 test('a retry row without a stored order goes dead, and the run continues', async () => {
   mockDb = fakeDb(new Map([['export_runs', [
     { order: '401', status: 'retry', attempts: 2, nextAt: '2020-01-01T00:00:01.000Z', mapped: null, at: '2020-01-01T00:00:00.000Z' },

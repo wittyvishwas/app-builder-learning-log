@@ -1,6 +1,8 @@
 /*
  * Order-sync bookkeeping in Database Storage (collection export_runs, from Ep 4), one row per order:
  *   { order, status: 'sent', at }                                  delivered; a redelivered event is skipped
+ *                                                                  (a row that was retry keeps attempts, and drops
+ *                                                                  lastError and httpStatus: they are null)
  *   { order, status: 'retry', attempts, nextAt, lastError, httpStatus, mapped, at }
  *                                                                  transient failure; the scheduled action resends it
  *   { order, status: 'dead', attempts, lastError, httpStatus, lines, totals, at }
@@ -58,14 +60,14 @@ async function connect (params) {
   const store = {
     isDone: async n => Boolean(await findOneOrNull(runs, { order: n, status: 'sent' })),
     // Every row for the order (a stray retry row next to a sent one, Ep 6's insertOne) becomes sent, and the
-    // mapped order and schedule are cleared; a new sent row, in Ep 6's shape, only when there was none.
+    // mapped order, schedule and the last error are cleared (attempts stays: it is useful history); a new sent row, in Ep 6's shape, only when there was none.
     async markDone (n) {
-      await runs.updateMany({ order: n }, { $set: { status: 'sent', at: now(), mapped: null, nextAt: null } })
+      await runs.updateMany({ order: n }, { $set: { status: 'sent', at: now(), mapped: null, nextAt: null, lastError: null, httpStatus: null } })
       // Don't rely on the shape of updateMany's result (aio-lib-db passes the service response through): look.
       if (!(await store.isDone(n))) await runs.insertOne({ order: n, status: 'sent', at: now() })
     },
     // A retry row left next to a sent row (a race): settle it so it is not picked up again and holds no order.
-    settleRetry: n => runs.updateMany({ order: n, status: 'retry' }, { $set: { status: 'sent', mapped: null, nextAt: null } }),
+    settleRetry: n => runs.updateMany({ order: n, status: 'retry' }, { $set: { status: 'sent', mapped: null, nextAt: null, lastError: null, httpStatus: null } }),
     // putRetry and putDead never touch a sent row: they re-check right before writing and skip (return false)
     // if the order is sent, and their filter excludes sent rows. A tiny window remains between the check and
     // the write; a duplicate POST in it is covered by the ERP's Idempotency-Key.
