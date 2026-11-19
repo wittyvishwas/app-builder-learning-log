@@ -9,6 +9,7 @@
 const { Core } = require('@adobe/aio-sdk')
 const libDb = require('@adobe/aio-lib-db')
 const { toErpOrder } = require('../../../../actions/order-sync/mapper')
+const { findOneOrNull } = require('../../../../actions/order-sync/store')
 
 const reply = (statusCode, error) => ({ statusCode, body: { error } })
 
@@ -42,8 +43,8 @@ async function main (params) {
     const runs = await client.collection('export_runs')
     const now = () => new Date().toISOString()
 
-    if (await runs.findOne({ order, status: 'sent' })) return reply(409, 'already sent')
-    const row = await runs.findOne({ order, status: { $in: ['retry', 'dead'] } })
+    if (await findOneOrNull(runs, { order, status: 'sent' })) return reply(409, 'already sent')
+    const row = await findOneOrNull(runs, { order, status: { $in: ['retry', 'dead'] } })
     if (!row) return reply(404, 'no such delivery')
 
     if (row.status === 'retry') {

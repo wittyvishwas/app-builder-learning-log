@@ -27,6 +27,19 @@ const COLLECTION = 'export_runs'
 // The region must match the provisioned one (app.config.yaml: database.region).
 const REGION = 'emea'
 
+// aio-lib-db 1.1.0 throws a DbError ("Request <id> to <path> failed: Document not found") when findOne matches
+// nothing, instead of resolving to null (seen on Stage 2026-11-19). Treat exactly that message as null and
+// rethrow everything else, so a real outage is not hidden.
+const NOT_FOUND = /failed: Document not found$/
+async function findOneOrNull (runs, filter) {
+  try {
+    return await runs.findOne(filter)
+  } catch (e) {
+    if (e && e.name === 'DbError' && NOT_FOUND.test(String(e.message))) return null
+    throw e
+  }
+}
+
 const safe = n => String(n).replace(/[^a-zA-Z0-9-_.]/g, '_')
 
 // One connection per invocation: the caller passes `store` into the export logic and calls close() in finally.
@@ -38,11 +51,11 @@ async function connect (params) {
   const now = () => new Date().toISOString()
   // A retry or dead row being replaced: its leftovers (the mapped order, the schedule) are cleared.
   const leftovers = async n => (
-    await runs.findOne({ order: n, status: { $in: ['retry', 'dead'] } })
+    await findOneOrNull(runs, { order: n, status: { $in: ['retry', 'dead'] } })
   ) ? { mapped: null, nextAt: null } : {}
 
   const store = {
-    isDone: async n => Boolean(await runs.findOne({ order: n, status: 'sent' })),
+    isDone: async n => Boolean(await findOneOrNull(runs, { order: n, status: 'sent' })),
     // Every row for the order (a stray retry row next to a sent one, Ep 6's insertOne) becomes sent, and the
     // mapped order and schedule are cleared; a new sent row, in Ep 6's shape, only when there was none.
     async markDone (n) {
@@ -75,7 +88,7 @@ async function connect (params) {
       const rows = await runs.find(filter).sort({ nextAt: 1 }).limit(limit).toArray()
       return { rows, total: await runs.countDocuments(filter) }
     },
-    getRetry: n => runs.findOne({ order: n, status: 'retry' })
+    getRetry: n => findOneOrNull(runs, { order: n, status: 'retry' })
   }
   return { store, close: () => client.close() }
 }
@@ -94,4 +107,4 @@ async function openLock () {
   }
 }
 
-module.exports = { connect, openLock, COLLECTION }
+module.exports = { connect, openLock, findOneOrNull, COLLECTION }

@@ -112,7 +112,13 @@ function fakeDb (data = new Map(), { failOn = [] } = {}) {
     return {
       insertOne: async doc => { fail('insertOne', name); insert({ ...doc }); return { insertedId: rows(name).length } },
       insertMany: async docs => { fail('insertMany', name); docs.forEach(d => insert({ ...d })); return { insertedCount: docs.length } },
-      findOne: async (filter = {}) => { fail('findOne', name); const d = rows(name).find(r => matches(r, filter)); return d ? { ...d } : null },
+      // aio-lib-db 1.1.0 throws on no match (the service answers 200 with success: false), it does not resolve to null.
+      findOne: async (filter = {}) => {
+        fail('findOne', name)
+        const d = rows(name).find(r => matches(r, filter))
+        if (!d) throw new DbError('Request fake-req-id to v1/collection/' + name + '/findOne failed: Document not found')
+        return { ...d }
+      },
       find: (filter = {}) => {
         fail('find', name)
         let sortSpec = null

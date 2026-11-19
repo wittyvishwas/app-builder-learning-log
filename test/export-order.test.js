@@ -409,3 +409,49 @@ test('markDone does not depend on the shape of updateMany\'s result', async () =
   expect(rows().filter(r => r.order === '000000201').map(r => r.status)).toEqual(['sent'])
   expect(rows().filter(r => r.order === '000000202').map(r => r.status)).toEqual(['sent'])
 })
+
+describe('findOne with no matching document (aio-lib-db 1.1.0 throws "Document not found")', () => {
+  const { DbError } = require('./helpers')
+  const open = async () => require('../actions/order-sync/store').connect({})
+  const failWith = err => {
+    const client = mockDb.client
+    const orig = client.collection
+    client.collection = async name => ({ ...(await orig(name)), findOne: async () => { throw err } })
+  }
+
+  test('no match reads as null: isDone false, getRetry null, putDead leftovers {}', async () => {
+    mockDb = fakeDb()
+    const { store, close } = await open()
+    expect(await store.isDone('000000999')).toBe(false)
+    expect(await store.getRetry('000000999')).toBeNull()
+    expect(await store.putDead('000000999', { lines: [], totals: {}, attempts: 1, lastError: 'x', httpStatus: 422 })).toBe(true)
+    await close()
+    expect(row('000000999').status).toBe('dead')
+    expect(row('000000999').mapped).toBeUndefined()
+  })
+
+  test('any other DbError is rethrown', async () => {
+    mockDb = fakeDb()
+    failWith(new DbError('Request r1 to v1/collection/export_runs/findOne failed: something else'))
+    const { store, close } = await open()
+    await expect(store.isDone('1')).rejects.toThrow('failed: something else')
+    await expect(store.getRetry('1')).rejects.toThrow('failed: something else')
+    await close()
+  })
+
+  test('a loose "not found" in another DbError is rethrown', async () => {
+    mockDb = fakeDb()
+    failWith(new DbError('Request r1 to v1/collection/export_runs/findOne failed: Collection not found'))
+    const { store, close } = await open()
+    await expect(store.isDone('1')).rejects.toThrow('Collection not found')
+    await close()
+  })
+
+  test('a non-DbError is rethrown, even with the same message', async () => {
+    mockDb = fakeDb()
+    failWith(new Error('Request r1 to v1/collection/export_runs/findOne failed: Document not found'))
+    const { store, close } = await open()
+    await expect(store.isDone('1')).rejects.toThrow('Document not found')
+    await close()
+  })
+})
