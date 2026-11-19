@@ -28,9 +28,10 @@ const COLLECTION = 'export_runs'
 const REGION = 'emea'
 
 // aio-lib-db 1.1.0 throws a DbError ("Request <id> to <path> failed: Document not found") when findOne matches
-// nothing, instead of resolving to null (seen on Stage 2026-11-19). Treat exactly that message as null and
-// rethrow everything else, so a real outage is not hidden.
-const NOT_FOUND = /failed: Document not found$/
+// nothing, instead of resolving to null (seen on Stage 2026-11-19, HTTP 200 with success false). Treat exactly
+// that message as null, also in the lib's non-2xx form ("failed with code 404: ..."), and rethrow everything
+// else, so a real outage is not hidden.
+const NOT_FOUND = /failed(?: with code 404)?: Document not found$/
 async function findOneOrNull (runs, filter) {
   try {
     return await runs.findOne(filter)

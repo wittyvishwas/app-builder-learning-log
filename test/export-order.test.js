@@ -447,6 +447,14 @@ describe('findOne with no matching document (aio-lib-db 1.1.0 throws "Document n
     await close()
   })
 
+  test('the non-2xx form of no match (code 404) is null too', async () => {
+    mockDb = fakeDb()
+    failWith(new DbError('Request r1 to v1/collection/export_runs/findOne failed with code 404: Document not found'))
+    const { store, close } = await open()
+    expect(await store.isDone('1')).toBe(false)
+    await close()
+  })
+
   test('a non-DbError is rethrown, even with the same message', async () => {
     mockDb = fakeDb()
     failWith(new Error('Request r1 to v1/collection/export_runs/findOne failed: Document not found'))
