@@ -8,6 +8,7 @@
  */
 const { Core } = require('@adobe/aio-sdk')
 const libDb = require('@adobe/aio-lib-db')
+const { checkClient } = require('../allowed-client')
 const { toErpOrder } = require('../../../../actions/order-sync/mapper')
 const { findOneOrNull } = require('../../../../actions/order-sync/store')
 
@@ -33,6 +34,8 @@ async function fetchOrder (params, order) {
 
 async function main (params) {
   const logger = Core.Logger('retry-delivery', { level: params.LOG_LEVEL || 'info' })
+  const denied = checkClient(params)
+  if (denied) return denied
   if (typeof params.order !== 'string' || !params.order.trim()) return reply(400, 'order is required')
   const order = params.order.trim()
   let client

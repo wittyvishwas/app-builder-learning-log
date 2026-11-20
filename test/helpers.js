@@ -224,4 +224,14 @@ const order = {
   ]
 }
 
-module.exports = { fakeState, fakeDb, DbError, scriptedFetch, order }
+// A bearer token with the given claims (unsigned: the allowlist helper only reads the payload) and the params an
+// Admin UI action gets from the gateway for it. `authed()` is a call from the allowed client 'client-a'.
+const b64 = o => Buffer.from(JSON.stringify(o)).toString('base64url')
+const tokenFor = claims => `${b64({ alg: 'RS256' })}.${b64(claims)}.sig`
+const authed = (clientId = 'client-a', extra = {}) => ({
+  ALLOWED_CLIENT_IDS: 'client-a',
+  __ow_headers: { authorization: `Bearer ${tokenFor({ client_id: clientId })}` },
+  ...extra
+})
+
+module.exports = { fakeState, fakeDb, DbError, scriptedFetch, order, tokenFor, authed }

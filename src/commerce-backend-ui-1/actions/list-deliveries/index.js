@@ -7,6 +7,7 @@
  */
 const { Core } = require('@adobe/aio-sdk')
 const libDb = require('@adobe/aio-lib-db')
+const { checkClient } = require('../allowed-client')
 
 const LIMIT = 50
 const FIELDS = ['order', 'status', 'attempts', 'lastError', 'httpStatus', 'at', 'nextAt']
@@ -14,6 +15,8 @@ const pick = row => Object.fromEntries(FIELDS.map(f => [f, row[f] ?? null]))
 
 async function main (params) {
   const logger = Core.Logger('list-deliveries', { level: params.LOG_LEVEL || 'info' })
+  const denied = checkClient(params)
+  if (denied) return denied
   let client
   try {
     const token = await Core.AuthClient.generateAccessToken(params)

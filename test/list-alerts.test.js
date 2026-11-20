@@ -12,8 +12,10 @@ jest.mock('@adobe/aio-sdk', () => ({
   }
 }))
 
-const { fakeDb } = require('./helpers')
-const { main } = require('../src/commerce-backend-ui-1/actions/list-alerts')
+const { fakeDb, authed } = require('./helpers')
+const { main: rawMain } = require('../src/commerce-backend-ui-1/actions/list-alerts')
+// Every call comes from the allowed client; the 403 test below calls rawMain with another one.
+const main = p => rawMain({ ...authed(), ...p })
 
 const row = (order, at, extra = {}) => ({ order, status: 'pending_payment', created_at: '2027-01-07 08:00:00', at, handled: false, ...extra })
 beforeEach(() => { mockLogs.error = [] })
@@ -58,4 +60,11 @@ test('a failed connect answers 500 and has nothing to close', async () => {
   mockDb = fakeDb(new Map(), { failOn: ['connect'] })
   expect((await main({})).statusCode).toBe(500)
   expect(mockDb.calls.close).toBe(0)
+})
+
+test('a token from a client that is not on the allowlist is refused with 403, before any database call', async () => {
+  mockDb = fakeDb()
+  const res = await rawMain({ ...authed('client-b'), ...{} })
+  expect(res).toEqual({ statusCode: 403, body: { error: 'forbidden' } })
+  expect(mockDb.calls.init).toEqual([])
 })

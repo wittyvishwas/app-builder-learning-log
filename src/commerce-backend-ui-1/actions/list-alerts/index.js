@@ -6,9 +6,12 @@
  */
 const { Core } = require('@adobe/aio-sdk')
 const libDb = require('@adobe/aio-lib-db')
+const { checkClient } = require('../allowed-client')
 
 async function main (params) {
   const logger = Core.Logger('list-alerts', { level: params.LOG_LEVEL || 'info' })
+  const denied = checkClient(params)
+  if (denied) return denied
   let client
   try {
     const token = await Core.AuthClient.generateAccessToken(params)
