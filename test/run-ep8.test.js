@@ -29,7 +29,7 @@ describe('render', () => {
     expect(() => render('nope', ENV, { outDir: tmp })).toThrow(/unknown variant/)
   })
 
-  test('v1: endpoints from env, key header on the fake sources, Stock, ReviewOne, reviewsEach, HTTP details, no cache', () => {
+  test('v1: endpoints from env, key header on the fake sources, Stock, ReviewOne, externalReviewsEach, HTTP details, no cache', () => {
     const m = mesh('v1')
     expect(src(m, 'Commerce').handler.graphql.endpoint).toBe(ENV.COMMERCE_GRAPHQL_URL)
     for (const name of ['Reviews', 'Stock', 'ReviewOne']) {
@@ -41,9 +41,11 @@ describe('render', () => {
     expect(src(m, 'Stock').handler.JsonSchema.operations[0]).toMatchObject({ field: 'stockBySkus', path: '/stock?skus={args.skus}', responseSchema: './stock-schema.json' })
     expect(src(m, 'ReviewOne').handler.JsonSchema.operations[0]).toMatchObject({ field: 'reviewOne', path: '/review?sku={args.sku}', responseSchema: './review-one.json' })
     expect(m.additionalResolvers).toHaveLength(2)
-    expect(m.additionalResolvers[0]).toMatchObject({ targetFieldName: 'reviews', keyField: 'sku', keysArg: 'skus' })
-    expect(m.additionalResolvers[1]).toMatchObject({ targetFieldName: 'reviewsEach', sourceName: 'ReviewOne', sourceArgs: { sku: '{root.sku}' }, requiredSelectionSet: '{ sku }' })
-    expect(m.additionalTypeDefs).toMatch(/reviewsEach: \[Review\]/)
+    expect(m.additionalResolvers[0]).toMatchObject({ targetFieldName: 'externalReviews', keyField: 'sku', keysArg: 'skus' })
+    expect(m.additionalResolvers[1]).toMatchObject({ targetFieldName: 'externalReviewsEach', sourceName: 'ReviewOne', sourceArgs: { sku: '{root.sku}' }, requiredSelectionSet: '{ sku }' })
+    expect(m.additionalTypeDefs).toMatch(/externalReviewsEach: \[Review\]/)
+    expect(m.additionalTypeDefs).toMatch(/\bexternalReviews: \[Review\]/)
+    expect(m.additionalTypeDefs).not.toMatch(/^\s*reviews\s*:/m)
     expect(m.responseConfig).toEqual({ includeHTTPDetails: true })
   })
 

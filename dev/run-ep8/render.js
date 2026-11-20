@@ -46,10 +46,10 @@ function v1Config (env) {
     source('Stock', env, { type: 'Query', field: 'stockBySkus', path: '/stock?skus={args.skus}', method: 'GET', argTypeMap: listArg('skus'), responseSchema: './stock-schema.json' }),
     source('ReviewOne', env, { type: 'Query', field: 'reviewOne', path: '/review?sku={args.sku}', method: 'GET', argTypeMap: { sku: { type: 'string' } }, responseSchema: './review-one.json' })
   )
-  mesh.additionalTypeDefs = 'extend type SimpleProduct {\n  reviews: [Review]\n  reviewsEach: [Review]\n}\n'
+  mesh.additionalTypeDefs = 'extend type SimpleProduct {\n  externalReviews: [Review]\n  externalReviewsEach: [Review]\n}\n'
   mesh.additionalResolvers.push({
     targetTypeName: 'SimpleProduct',
-    targetFieldName: 'reviewsEach',
+    targetFieldName: 'externalReviewsEach',
     sourceName: 'ReviewOne',
     sourceTypeName: 'Query',
     sourceFieldName: 'reviewOne',
@@ -68,7 +68,7 @@ function build (variant, env) {
     const mesh = config.meshConfig
     mesh.sources.length = 2
     mesh.additionalResolvers.length = 1
-    mesh.additionalTypeDefs = 'extend type SimpleProduct {\n  reviews: [Review]\n}\n'
+    mesh.additionalTypeDefs = 'extend type SimpleProduct {\n  externalReviews: [Review]\n}\n'
     mesh.responseConfig = { cache: true }
     mesh.sources[1].handler = { jsonSchema: mesh.sources[1].handler.JsonSchema }
     return { config, extraFiles }

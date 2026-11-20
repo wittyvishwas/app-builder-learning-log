@@ -209,7 +209,7 @@ aio api-mesh:status
 aio api-mesh:describe
 ```
 
-The `responseSchema` path is relative to `mesh.json`, so `reviews-schema.json` must stay next to it. The REST handler is spelled `JsonSchema`; `jsonSchema` is rejected. Only `SimpleProduct` gets `reviews` here; repeat the type extension and resolver for `ConfigurableProduct` and other product types you sell.
+The `responseSchema` path is relative to `mesh.json`, so `reviews-schema.json` must stay next to it. The REST handler is spelled `JsonSchema`; `jsonSchema` is rejected. Only `SimpleProduct` gets `externalReviews` here (not `reviews`: Commerce's own schema already has a `reviews` field on products, and the mesh build fails on the clash); repeat the type extension and resolver for `ConfigurableProduct` and other product types you sell.
 
 The reviews endpoint must answer `/reviews?skus=A,B` with one list per SKU, in the order asked (an array of arrays); that's how the batched join maps results back to products. How the array is written into the query string is not verified on a real mesh yet.
 
