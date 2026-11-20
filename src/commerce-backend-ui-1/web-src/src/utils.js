@@ -11,7 +11,16 @@ export async function callAction (props, action, body = {}) {
     },
     body: JSON.stringify(body)
   })
-  const data = await res.json()
+  // Read the body as text first: when an action fails with a 5xx, the gateway can answer with an HTML
+  // error page, and res.json() would then show "Unexpected token '<'" instead of the real status.
+  const text = await res.text()
+  let data = null
+  try {
+    data = JSON.parse(text)
+  } catch (e) {
+    data = null
+  }
   if (!res.ok) throw new Error((data && data.error) || `HTTP ${res.status}`)
+  if (data === null) throw new Error(`HTTP ${res.status}: response is not JSON`)
   return data
 }
