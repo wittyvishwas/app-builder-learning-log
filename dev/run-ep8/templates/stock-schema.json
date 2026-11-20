@@ -1,0 +1,13 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "type": "array",
+  "items": {
+    "type": "object",
+    "properties": {
+      "sku": { "type": "string" },
+      "qty": { "type": "integer" },
+      "callId": { "type": "string" }
+    },
+    "required": ["sku", "qty", "callId"]
+  }
+}
