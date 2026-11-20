@@ -29,6 +29,12 @@ test('the reviews resolver joins on sku with keysArg skus', () => {
   expect(resolver).toMatchObject({ keyField: 'sku', keysArg: 'skus' })
 })
 
+test('the type extension declares externalReviews, never reviews (Commerce already has products.reviews)', () => {
+  const defs = load(meshPath).meshConfig.additionalTypeDefs
+  expect(defs).toMatch(/\bexternalReviews: \[Review\]/)
+  expect(defs).not.toMatch(/^\s*reviews\s*:/m)
+})
+
 test('the skus argument is sent as an array', () => {
   const operation = reviewsSource().handler.JsonSchema.operations[0]
   expect(operation.argTypeMap.skus.type).toBe('array')

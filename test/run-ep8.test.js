@@ -44,6 +44,8 @@ describe('render', () => {
     expect(m.additionalResolvers[0]).toMatchObject({ targetFieldName: 'externalReviews', keyField: 'sku', keysArg: 'skus' })
     expect(m.additionalResolvers[1]).toMatchObject({ targetFieldName: 'externalReviewsEach', sourceName: 'ReviewOne', sourceArgs: { sku: '{root.sku}' }, requiredSelectionSet: '{ sku }' })
     expect(m.additionalTypeDefs).toMatch(/externalReviewsEach: \[Review\]/)
+    expect(m.additionalTypeDefs).toMatch(/\bexternalReviews: \[Review\]/)
+    expect(m.additionalTypeDefs).not.toMatch(/^\s*reviews\s*:/m)
     expect(m.responseConfig).toEqual({ includeHTTPDetails: true })
   })
 
