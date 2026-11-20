@@ -225,7 +225,7 @@ The reviews endpoint must answer `/reviews?skus=A,B` with one list per SKU, in t
 
 `src/commerce-backend-ui-1/` is an Admin UI SDK **v1** extension (`extensions: commerce/backend-ui/1` in `app.config.yaml`). Its layout and registration fields are copied from Adobe's [custom-menu sample](https://github.com/adobe/adobe-commerce-samples/tree/main/admin-ui-sdk/v1/menu/custom-menu): a `registration` web action returns `menuItems` (`id`, `title`, `parent`, `sortOrder`, plus the sample's `Apps` section with `isSection: true`) and `page.title`; `web-src/` is the sample's bootstrap (`exc-runtime`, `register`, `attach` for the IMS token, `callAction`) with React Spectrum tables. The menu item is **Stuck orders** under the sample's **Apps** section; no new section.
 
-A 5xx from an action can reach the page as an HTML error page from the gateway, so the page reads the body as text and shows `HTTP <status>` when it isn't JSON.
+On Stage, a 502 from `retry-delivery` reached the page as an HTML page instead of the action's JSON (most likely the gateway replaces 5xx bodies), so the page reads the body as text and shows `HTTP <status>` when it isn't JSON.
 
 - `list-alerts`: `find({ handled: { $ne: true } }).sort({ at: -1 }).limit(50)` on `stuck_alerts`, as in the post.
 - `mark-handled`: needs `order` (400 without it, 404 for an unknown order), then `updateOne` setting `handled: true` and `handledAt`.

@@ -8,7 +8,10 @@ const original = fs.readFileSync(file, 'utf8')
 const src = original.replace('export async function callAction', 'async function callAction')
 
 function build (fetchMock) {
-  const fakeRequire = () => ({ 'StuckOrders/list-alerts': 'http://x' })
+  const fakeRequire = p => {
+    expect(p).toBe('./config.json')
+    return { 'StuckOrders/list-alerts': 'http://x' }
+  }
   // eslint-disable-next-line no-new-func
   return new Function('require', 'fetch', src + '; return callAction')(fakeRequire, fetchMock)
 }
