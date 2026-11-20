@@ -11,7 +11,16 @@ export async function callAction (props, action, body = {}) {
     },
     body: JSON.stringify(body)
   })
-  const data = await res.json()
+  // Read the body as text first: a 502 from an action once reached the page as an HTML page (most likely
+  // the gateway replaces 5xx bodies), and res.json() then showed "Unexpected token '<'" instead of the status.
+  const text = await res.text()
+  let data = null
+  try {
+    data = JSON.parse(text)
+  } catch (e) {
+    data = null
+  }
   if (!res.ok) throw new Error((data && data.error) || `HTTP ${res.status}`)
+  if (data === null) throw new Error(`HTTP ${res.status}: response is not JSON`)
   return data
 }
