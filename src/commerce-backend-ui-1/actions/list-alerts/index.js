@@ -10,7 +10,7 @@ const { checkClient } = require('../allowed-client')
 
 async function main (params) {
   const logger = Core.Logger('list-alerts', { level: params.LOG_LEVEL || 'info' })
-  const denied = checkClient(params)
+  const denied = checkClient(params, logger)
   if (denied) return denied
   let client
   try {

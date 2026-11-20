@@ -8,7 +8,7 @@ const { checkClient } = require('../allowed-client')
 
 async function main (params) {
   const logger = Core.Logger('mark-handled', { level: params.LOG_LEVEL || 'info' })
-  const denied = checkClient(params)
+  const denied = checkClient(params, logger)
   if (denied) return denied
   if (typeof params.order !== 'string' || !params.order.trim()) {
     return { statusCode: 400, body: { error: 'order is required' } }

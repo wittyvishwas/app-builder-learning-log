@@ -34,7 +34,7 @@ async function fetchOrder (params, order) {
 
 async function main (params) {
   const logger = Core.Logger('retry-delivery', { level: params.LOG_LEVEL || 'info' })
-  const denied = checkClient(params)
+  const denied = checkClient(params, logger)
   if (denied) return denied
   if (typeof params.order !== 'string' || !params.order.trim()) return reply(400, 'order is required')
   const order = params.order.trim()

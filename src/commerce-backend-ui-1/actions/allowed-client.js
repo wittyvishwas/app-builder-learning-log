@@ -7,6 +7,9 @@
  * Answers: 401 token missing or unreadable, 500 allowlist empty (fails closed: nothing is allowed), 403 other client.
  * The token's signature is NOT verified here: require-adobe-auth already validated the token before the action ran.
  * This only reads the claim. Never log the token.
+ * With a logger, a refusal is logged at warn level with the caller's client_id (a public identifier, not a secret), so
+ * the owner can read it with `aio rt activation logs` and fill ALLOWED_CLIENT_IDS on the first run. Nothing else from
+ * the token is logged.
  */
 const reply = (statusCode, error) => ({ statusCode, body: { error } })
 
@@ -24,13 +27,18 @@ function clientIdOf (params) {
   }
 }
 
-// null when the caller's client is allowed, otherwise the response to return.
-function checkClient (params) {
+// null when the caller's client is allowed, otherwise the response to return. The logger is optional.
+function checkClient (params, logger) {
   const clientId = clientIdOf(params)
   if (!clientId) return reply(401, 'unauthorized')
   const allowed = String(params.ALLOWED_CLIENT_IDS || '').split(',').map(s => s.trim()).filter(Boolean)
-  if (!allowed.length) return reply(500, 'ALLOWED_CLIENT_IDS is not set')
-  return allowed.includes(clientId) ? null : reply(403, 'forbidden')
+  if (!allowed.length) {
+    if (logger) logger.warn(`ALLOWED_CLIENT_IDS is not set (caller client ${clientId})`)
+    return reply(500, 'ALLOWED_CLIENT_IDS is not set')
+  }
+  if (allowed.includes(clientId)) return null
+  if (logger) logger.warn(`client ${clientId} not allowed`)
+  return reply(403, 'forbidden')
 }
 
 module.exports = { checkClient, clientIdOf }

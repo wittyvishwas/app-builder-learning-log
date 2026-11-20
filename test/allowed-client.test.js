@@ -59,3 +59,21 @@ test('the scheme is case-insensitive and clientIdOf returns the claim', () => {
   expect(clientIdOf(withHeader(`bearer ${t}`))).toBe('client-a')
   expect(clientIdOf({})).toBeNull()
 })
+
+test('a refusal is logged at warn level with the client_id and never the token', () => {
+  const warns = []
+  const logger = { warn: m => warns.push(m) }
+
+  const other = authed('client-x')
+  expect(checkClient(other, logger).statusCode).toBe(403)
+  const unset = authed('client-y', { ALLOWED_CLIENT_IDS: '' })
+  expect(checkClient(unset, logger).statusCode).toBe(500)
+  expect(checkClient(authed('client-a'), logger)).toBeNull()
+  expect(checkClient({}, logger).statusCode).toBe(401)
+
+  expect(warns).toEqual(['client client-x not allowed', 'ALLOWED_CLIENT_IDS is not set (caller client client-y)'])
+  for (const p of [other, unset]) {
+    const token = p.__ow_headers.authorization.replace(/^Bearer\s+/i, '')
+    for (const m of warns) expect(m).not.toContain(token)
+  }
+})
