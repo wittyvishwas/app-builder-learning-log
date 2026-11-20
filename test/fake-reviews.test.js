@@ -343,6 +343,21 @@ describe('/calls', () => {
     expect((await call('get', '/calls', { query: 'since=abc' })).body.count).toBe(3)
   })
 
+  test('since filters on the timestamp in the key, without reading older records', async () => {
+    mockStore.set('fake-reviews.call.reviews.100-aaaaaa', 'not json {') // would throw if it were read
+    seed('stock', 300)
+    const res = await call('get', '/calls', { query: 'since=200' })
+    expect(res.statusCode).toBe(200)
+    expect(res.body.calls.map(c => c.at)).toEqual([300])
+  })
+
+  test('a key without a readable timestamp is read and filtered by the record\'s own at', async () => {
+    mockStore.set('fake-reviews.call.reviews.odd', JSON.stringify({ callId: 'odd', at: 500, route: 'reviews' }))
+    mockStore.set('fake-reviews.call.reviews.odd2', JSON.stringify({ callId: 'odd2', at: 50, route: 'reviews' }))
+    const res = await call('get', '/calls', { query: 'since=200' })
+    expect(res.body.calls.map(c => c.callId)).toEqual(['odd'])
+  })
+
   test('a real source call shows up', async () => {
     await get('/reviews', 'skus=a')
     const res = await call('get', '/calls')

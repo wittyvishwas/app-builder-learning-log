@@ -4,11 +4,11 @@ Run code for measuring the Ep 8 claims on a real workspace: a fake review/stock 
 
 ## Setup
 
-Add to `.env` (names in `.env.dist`): `FAKE_REVIEWS_API_KEY` (16+ characters), `FAKE_REVIEWS_URL` (the action's web URL, no trailing slash), `COMMERCE_GRAPHQL_URL`, `MESH_PROJECT_TITLE`, and later `MESH_URL`. Deploy the app so the fake action exists.
+Add to `.env` (names in `.env.dist`): `FAKE_REVIEWS_API_KEY` (16+ characters), `FAKE_REVIEWS_URL` (the action's web URL, no trailing slash), `COMMERCE_GRAPHQL_URL`, `MESH_PROJECT_TITLE`, `MESH_WORKSPACE_NAME`, and later `MESH_URL`. Deploy the app so the fake action exists.
 
 ## Session start
 
-`mesh.sh` is the only way to run `aio api-mesh:*` here. It refuses unless `aio where` ends a line with `Project: $MESH_PROJECT_TITLE`. It does not select the context: select the test project and workspace yourself first, and restore the previous context when you finish. Never pass `-c` to `cache:purge` (it auto-confirms); the wrapper's `purge` runs `-a` and the CLI asks.
+`mesh.sh` is the only way to run `aio api-mesh:*` here. It refuses unless `aio where` ends a line with `Project: $MESH_PROJECT_TITLE` and another with `Workspace: $MESH_WORKSPACE_NAME` (both required, no defaults). It does not select the context: select the test project and workspace yourself first, and restore the previous context when you finish. Never pass `-c` to `cache:purge` (it auto-confirms); the wrapper's `purge` runs `-a` and the CLI asks.
 
 ```bash
 dev/run-ep8/mesh.sh get        # first session: expect no mesh; if one exists, stop

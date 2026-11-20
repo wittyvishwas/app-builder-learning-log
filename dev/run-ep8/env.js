@@ -1,5 +1,5 @@
 // Reads KEY=VALUE lines of a .env file. The CLI scripts call this once at start-up and pass the result on;
-// nothing here is used by the unit tests.
+// parseEnv is unit-tested (test/run-ep8.test.js); loadEnv and need are not.
 const fs = require('fs')
 const path = require('path')
 

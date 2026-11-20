@@ -118,7 +118,7 @@ test('parseEnv reads KEY=VALUE lines, quotes and comments', () => {
 
 describe('mesh.sh', () => {
   // A copy in a temp tree, so the script's ../../.env is never the repo's real .env.
-  let script, root, bin, log
+  let script, root, bin, log, whereLog
   beforeAll(() => {
     root = path.join(tmp, 'tree')
     fs.mkdirSync(path.join(root, 'dev/run-ep8'), { recursive: true })
@@ -126,18 +126,27 @@ describe('mesh.sh', () => {
     fs.copyFileSync(path.join(__dirname, '../dev/run-ep8/mesh.sh'), script)
     bin = path.join(tmp, 'bin')
     log = path.join(tmp, 'aio.log')
+    whereLog = path.join(tmp, 'aio-where.log')
     fs.mkdirSync(bin)
     // Stub aio: `where` prints $STUB_WHERE; anything else is only logged.
-    fs.writeFileSync(path.join(bin, 'aio'), '#!/usr/bin/env bash\nif [ "$1" = where ]; then printf "%b" "$STUB_WHERE"; exit 0; fi\necho "$@" >> "' + log + '"\n', { mode: 0o755 })
+    fs.writeFileSync(path.join(bin, 'aio'), '#!/usr/bin/env bash\nif [ "$1" = where ]; then echo where >> "' + whereLog + '"; printf "%b" "$STUB_WHERE"; exit 0; fi\necho "$@" >> "' + log + '"\n', { mode: 0o755 })
   })
-  beforeEach(() => { fs.rmSync(log, { force: true }); fs.rmSync(path.join(root, '.env'), { force: true }) })
+  beforeEach(() => { fs.rmSync(log, { force: true }); fs.rmSync(whereLog, { force: true }); fs.rmSync(path.join(root, '.env'), { force: true }) })
 
-  const run = (args, { where = 'Org: Test Org\nProject: Test Project\nWorkspace: Stage\n', title = 'Test Project' } = {}) => {
+  const run = (args, { where = 'Org: Test Org\nProject: Test Project\nWorkspace: Stage\n', title = 'Test Project', workspace = 'Stage' } = {}) => {
     const env = { PATH: `${bin}:${process.env.PATH}`, STUB_WHERE: where, HOME: tmp }
     if (title !== null) env.MESH_PROJECT_TITLE = title
+    if (workspace !== null) env.MESH_WORKSPACE_NAME = workspace
     return spawnSync('bash', [script, ...args], { env, encoding: 'utf8' })
   }
+  const whereCalled = () => fs.existsSync(whereLog)
   const ran = () => (fs.existsSync(log) ? fs.readFileSync(log, 'utf8').trim().split('\n') : [])
+
+  test('passes on the real `aio where` output format', () => {
+    const r = run(['get'], { where: 'You are currently in:\n1. Org: O\n2. Project: Test Project\n3. Workspace: Stage\n' })
+    expect(r.status).toBe(0)
+    expect(ran()).toEqual(['api-mesh:get'])
+  })
 
   test('refuses and runs nothing when the project is another one', () => {
     for (const where of ['Project: Other Project\n', 'Project: Test Project 2\n', 'Project: Prefix Test Project\n', 'Project: Test Project Extra\nWorkspace: x\n', '']) {
@@ -152,6 +161,37 @@ describe('mesh.sh', () => {
     expect(run(['get'], { title: null }).status).not.toBe(0)
     expect(run(['get'], { title: '' }).status).not.toBe(0)
     expect(ran()).toEqual([])
+  })
+
+  test('refuses when the workspace is another one, and runs nothing', () => {
+    for (const where of ['Project: Test Project\nWorkspace: Production\n', 'Project: Test Project\nWorkspace: Stage 2\n', 'Project: Test Project\nWorkspace: Prod Stage\n', 'Project: Test Project\n']) {
+      const r = run(['delete'], { where })
+      expect(r.status).not.toBe(0)
+      expect(r.stderr).toMatch(/workspace.*refusing/)
+    }
+    expect(run(['delete'], { workspace: 'St.ge' }).status).not.toBe(0) // regex characters match literally
+    expect(ran()).toEqual([])
+  })
+
+  test('refuses before calling aio when MESH_WORKSPACE_NAME is unset or empty', () => {
+    for (const workspace of [null, '']) {
+      const r = run(['get'], { workspace })
+      expect(r.status).not.toBe(0)
+      expect(r.stderr).toMatch(/MESH_WORKSPACE_NAME/)
+    }
+    expect(ran()).toEqual([])
+    expect(whereCalled()).toBe(false)
+  })
+
+  test('refuses before calling aio when MESH_PROJECT_TITLE is unset', () => {
+    expect(run(['get'], { title: null }).status).not.toBe(0)
+    expect(whereCalled()).toBe(false)
+  })
+
+  test('reads MESH_WORKSPACE_NAME from .env when the environment has none', () => {
+    fs.writeFileSync(path.join(root, '.env'), 'MESH_WORKSPACE_NAME=Stage\n')
+    expect(run(['get'], { workspace: null }).status).toBe(0)
+    expect(run(['get'], { workspace: null, where: 'Project: Test Project\nWorkspace: Other\n' }).status).not.toBe(0)
   })
 
   test('reads MESH_PROJECT_TITLE from .env when the environment has none, and only that key', () => {
@@ -185,7 +225,7 @@ describe('mesh.sh', () => {
 
   test('a title with regex characters is matched literally', () => {
     expect(run(['get'], { title: 'A.B (x)', where: 'Project: AxB (x)\n' }).status).not.toBe(0)
-    expect(run(['get'], { title: 'A.B (x)', where: 'Project: A.B (x)  \n' }).status).toBe(0)
+    expect(run(['get'], { title: 'A.B (x)', where: 'Project: A.B (x)  \nWorkspace: Stage\n' }).status).toBe(0)
   })
 
   test('the script never contains -c for purge', () => {

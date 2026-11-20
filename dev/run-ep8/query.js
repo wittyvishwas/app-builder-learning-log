@@ -35,8 +35,8 @@ function resolveQuery (queries, name, meshUrl) {
   return start + 'x'.repeat(pad)
 }
 
-async function fakeCalls (env) {
-  const res = await fetch(env.FAKE_REVIEWS_URL.replace(/\/$/, '') + '/calls?since=0', { headers: { 'x-mm-key': env.FAKE_REVIEWS_API_KEY } })
+async function fakeCalls (env, since) {
+  const res = await fetch(env.FAKE_REVIEWS_URL.replace(/\/$/, '') + `/calls?since=${since}`, { headers: { 'x-mm-key': env.FAKE_REVIEWS_API_KEY } })
   if (!res.ok) throw new Error(`fake /calls answered ${res.status}`)
   return (await res.json()).calls
 }
@@ -51,7 +51,8 @@ async function main (argv) {
   const query = resolveQuery(queries, name, env.MESH_URL)
   fs.mkdirSync(OUT, { recursive: true })
 
-  let seen = new Set((await fakeCalls(env)).map(c => c.callId))
+  const runStart = Date.now() // only calls made during this run are listed (the action filters on the call time in its key)
+  let seen = new Set((await fakeCalls(env, runStart)).map(c => c.callId))
   for (let i = 0; i < Number(f.repeat || 1); i++) {
     if (i > 0 && f.wait) await new Promise(resolve => setTimeout(resolve, Number(f.wait) * 1000))
     const headers = { 'Content-Type': 'application/json', ...(f.origin ? { Origin: f.origin } : {}) }
@@ -64,7 +65,7 @@ async function main (argv) {
     let errors = []
     try { errors = (JSON.parse(text).errors || []).map(e => e.message) } catch (e) { errors = ['(body is not JSON)'] }
     const callIds = [...new Set(text.match(/\d{13}-[0-9a-f]{6}/g) || [])]
-    const calls = await fakeCalls(env)
+    const calls = await fakeCalls(env, runStart)
     const fresh = calls.filter(c => !seen.has(c.callId))
     seen = new Set(calls.map(c => c.callId))
     const newCalls = {}

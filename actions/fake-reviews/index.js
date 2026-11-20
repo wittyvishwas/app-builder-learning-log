@@ -225,6 +225,10 @@ async function main (params) {
     const since = Number.isFinite(Number(sinceRaw)) ? Number(sinceRaw) : 0
     const calls = []
     for (const k of unique) {
+      // The key ends in `<route>.<at>-<hex>`: skip records older than `since` without reading them. A key without
+      // a readable timestamp is read and checked by the record's own `at`.
+      const keyAt = /\.(\d+)-[0-9a-f]+$/.exec(k)
+      if (keyAt && Number(keyAt[1]) < since) continue
       const found = await state.get(k)
       if (!found) continue
       const call = JSON.parse(found.value)
