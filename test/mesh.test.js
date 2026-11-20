@@ -24,7 +24,7 @@ test('the Reviews source handler is spelled JsonSchema, not jsonSchema', () => {
 
 test('the reviews resolver joins on sku with keysArg skus', () => {
   const resolver = load(meshPath).meshConfig.additionalResolvers.find(
-    r => r.targetTypeName === 'SimpleProduct' && r.targetFieldName === 'reviews'
+    r => r.targetTypeName === 'SimpleProduct' && r.targetFieldName === 'externalReviews'
   )
   expect(resolver).toMatchObject({ keyField: 'sku', keysArg: 'skus' })
 })

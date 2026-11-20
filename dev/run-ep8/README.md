@@ -21,7 +21,7 @@ dev/run-ep8/mesh.sh get        # first session: expect no mesh; if one exists, s
 | Variant | Content |
 |---|---|
 | `v0-lower` | Tag config with `jsonSchema` (lower case) |
-| `v1` | Tag config without `responseConfig.cache`, plus source `Stock`, source `ReviewOne` and field `reviewsEach` (`sourceArgs`), `includeHTTPDetails` on |
+| `v1` | Tag config without `responseConfig.cache`, plus source `Stock`, source `ReviewOne` and field `externalReviewsEach` (`sourceArgs`), `includeHTTPDetails` on |
 | `v2` | `v1` with `cache: true`, no `includeHTTPDetails`, CORS for `https://mmtest.example.com` |
 | `v3` | `v2` plus `cacheControl: "public, max-age=100"` on the Reviews source |
 | `bad-name-hyphen`, `-underscore`, `-space` | `v1` with the Reviews source named `Reviews-2`, `Reviews_2`, `Reviews 2` |

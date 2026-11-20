@@ -1,6 +1,6 @@
 {
-  "page": "{ products(search: \"a\", pageSize: 60) { items { sku ... on SimpleProduct { reviews { sku rating body } } } } }",
-  "pageEach": "{ products(search: \"a\", pageSize: 60) { items { sku ... on SimpleProduct { reviewsEach { sku rating body } } } } }",
+  "page": "{ products(search: \"a\", pageSize: 60) { items { sku ... on SimpleProduct { externalReviews { sku rating body } } } } }",
+  "pageEach": "{ products(search: \"a\", pageSize: 60) { items { sku ... on SimpleProduct { externalReviewsEach { sku rating body } } } } }",
   "commerceOnly": "{ products(search: \"a\", pageSize: 3) { items { sku } } }",
   "reviewsOnly": "{ reviewsBySkus(skus: [\"MMTEST-1\", \"MMTEST-2\"]) { sku rating body } }",
   "reviewsAndStock": "{ reviewsBySkus(skus: [\"MMTEST-1\", \"MMTEST-2\"]) { sku rating body } stockBySkus(skus: [\"MMTEST-1\", \"MMTEST-2\"]) { sku qty callId } }",
