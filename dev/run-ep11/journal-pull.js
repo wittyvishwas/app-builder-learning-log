@@ -2,9 +2,9 @@
  * Ep 11: read events from an Adobe I/O Events journaling endpoint and, only when asked, post ONE chosen event to a
  * local handler (the order-placed action under `aio app dev`).
  *
- *   node dev/run-ep11/journal-pull.js --order <increment_id> [--post <localHandlerUrl>]
+ *   node dev/run-ep11/journal-pull.js --order <increment_id> [--dry-run | --post <localHandlerUrl>]
  *
- * Without --post it is a dry run: it lists the events of that order and posts nothing. Events of other orders are
+ * Without --post it is a dry run (--dry-run says so explicitly and cannot be combined with --post): it lists the events of that order and posts nothing. Events of other orders are
  * counted, never printed. With --post it posts the body of the first matching event and prints `event <id> -> <status>`.
  * The URL must point at this machine (localhost, 127.0.0.1, [::1], host.docker.internal): this is a local test tool.
  *
@@ -29,22 +29,26 @@ const LOCAL_HOSTS = new Set(['localhost', '127.0.0.1', '[::1]', 'host.docker.int
 
 class UsageError extends Error {}
 
-const USAGE = 'usage: node dev/run-ep11/journal-pull.js --order <increment_id> [--post <localHandlerUrl>]'
+const USAGE = 'usage: node dev/run-ep11/journal-pull.js --order <increment_id> [--dry-run | --post <localHandlerUrl>]'
 
 // Pure. Returns { order, post }. Throws UsageError (exit code 2) for anything else.
 function parseArgs (argv) {
   const out = { order: undefined, post: undefined }
+  let dryRun = false
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i]
     if (a === '--order' || a === '--post') {
       const v = argv[++i]
       if (v === undefined || v.startsWith('--')) throw new UsageError(`${a} needs a value\n${USAGE}`)
       out[a.slice(2)] = v
+    } else if (a === '--dry-run') {
+      dryRun = true
     } else {
       throw new UsageError(`unknown argument ${a}\n${USAGE}`)
     }
   }
   if (!out.order) throw new UsageError(`--order is required\n${USAGE}`)
+  if (dryRun && out.post !== undefined) throw new UsageError(`--dry-run and --post cannot be combined\n${USAGE}`)
   if (out.post !== undefined) {
     let u
     try { u = new URL(out.post) } catch { throw new UsageError(`--post is not a URL\n${USAGE}`) }
@@ -88,11 +92,18 @@ function nextLink (linkHeader, baseUrl) {
 const header = (res, name) => (res.headers && typeof res.headers.get === 'function' ? res.headers.get(name) : undefined)
 
 // Reads every page that is there: follows `next` while a page has events, stops at 204 or an empty page.
+// Returns { entries, truncated, foreignNext }: truncated = the page cap was hit while a next link was pending;
+// foreignNext = a next link to another origin (or not https) was ignored, so the bearer token never leaves the journal host.
 // Throws with the status only (never the response body, headers or token).
-async function pullEvents (fetchImpl, request) {
+async function pullEvents (fetchImpl, request, maxPages = MAX_PAGES) {
   const entries = []
+  const origin = new URL(request.url).origin
+  let truncated = false
+  let foreignNext = false
   let url = request.url
-  for (let page = 0; page < MAX_PAGES && url; page++) {
+  let page = 0
+  while (url) {
+    if (page++ >= maxPages) { truncated = true; break }
     const res = await fetchImpl(url, request.options)
     if (res.status === 204) break
     if (res.status !== 200) throw new Error(`journal answered ${res.status}`)
@@ -101,13 +112,18 @@ async function pullEvents (fetchImpl, request) {
     if (!events.length) break
     entries.push(...events)
     url = nextLink(header(res, 'link'), request.url)
+    if (url) {
+      const u = new URL(url)
+      if (u.protocol !== 'https:' || u.origin !== origin) { foreignNext = true; url = undefined }
+    }
   }
-  return entries
+  return { entries, truncated, foreignNext }
 }
 
 // POST the event body (the `event` object, what a Runtime action gets as params) to the handler.
 async function postEvent (fetchImpl, url, entry) {
-  const res = await fetchImpl(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(entry.event) })
+  const res = await fetchImpl(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(entry.event), redirect: 'manual' })
+  if (res.status >= 300 && res.status < 400) throw new Error('post redirected, not followed')
   return res.status
 }
 
@@ -124,7 +140,9 @@ async function run ({ argv, env, fetchImpl, getToken, log = console.log, err = c
   try {
     need(env, ['JOURNAL_URL', 'IMS_OAUTH_S2S_ORG_ID'])
     if (!env.JOURNAL_API_KEY) need(env, ['IMS_OAUTH_S2S_CLIENT_ID'])
-    const entries = await pullEvents(fetchImpl, buildRequest(env, await getToken(env)))
+    const { entries, truncated, foreignNext } = await pullEvents(fetchImpl, buildRequest(env, await getToken(env)))
+    if (foreignNext) err('next link to another host ignored')
+    if (truncated) err(`stopped after ${MAX_PAGES} pages; more events may exist`)
     const matching = entries.filter(e => matchesOrder(e, args.order))
     const others = entries.length - matching.length
 
@@ -137,7 +155,7 @@ async function run ({ argv, env, fetchImpl, getToken, log = console.log, err = c
     log(`${entries.length} event(s) read, ${matching.length} for order ${args.order}, ${others} for other orders (not listed)`)
     return 0
   } catch (e) {
-    err(`journal-pull failed: ${e.message}`)
+    err(`journal-pull failed: ${e.message}${e.cause?.code ? ` (${e.cause.code})` : ''}`)
     return 1
   }
 }
@@ -156,7 +174,7 @@ async function getToken (env) {
   return token.access_token
 }
 
-module.exports = { parseArgs, matchesOrder, orderOf, eventId, buildRequest, nextLink, pullEvents, postEvent, run, UsageError }
+module.exports = { MAX_PAGES, parseArgs, matchesOrder, orderOf, eventId, buildRequest, nextLink, pullEvents, postEvent, run, UsageError }
 
 if (require.main === module) {
   let env

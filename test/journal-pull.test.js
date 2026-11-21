@@ -2,7 +2,7 @@
  * Tests for dev/run-ep11/journal-pull.js: fake fetch, injected env and token, no .env, no network.
  */
 const { scriptedFetch } = require('./helpers')
-const { parseArgs, nextLink, matchesOrder, run } = require('../dev/run-ep11/journal-pull')
+const { MAX_PAGES, parseArgs, nextLink, matchesOrder, eventId, pullEvents, buildRequest, run } = require('../dev/run-ep11/journal-pull')
 
 const TOKEN = 'tok-SECRET-abc123'
 const API_KEY = 'apikey-SECRET-xyz789'
@@ -54,8 +54,18 @@ describe('parseArgs', () => {
     expect(parseArgs(['--order', '000000201'])).toEqual({ order: '000000201', post: undefined })
     expect(parseArgs(['--order', '1', '--post', HANDLER]).post).toBe(HANDLER)
   })
+  test('--dry-run is an explicit no-op, and cannot be combined with --post', () => {
+    expect(parseArgs(['--order', '1', '--dry-run'])).toEqual({ order: '1', post: undefined })
+    expect(() => parseArgs(['--order', '1', '--dry-run', '--post', HANDLER])).toThrow(/cannot be combined/)
+  })
+  test('the --post guard rejects look-alike hosts and other schemes, accepts IPv6 loopback', () => {
+    for (const bad of ['http://localhost.evil.com/x', 'http://localhost@evil.test/x', 'ftp://localhost/x']) {
+      expect(() => parseArgs(['--order', '1', '--post', bad])).toThrow(/on this machine/)
+    }
+    expect(parseArgs(['--order', '1', '--post', 'http://[::1]:9080/']).post).toBe('http://[::1]:9080/')
+  })
   test('refuses unknown flags, a missing value and a non-local --post', () => {
-    expect(() => parseArgs(['--order', '1', '--dry-run'])).toThrow(/unknown argument/)
+    expect(() => parseArgs(['--order', '1', '--bogus'])).toThrow(/unknown argument/)
     expect(() => parseArgs(['--order'])).toThrow(/needs a value/)
     expect(() => parseArgs(['--order', '1', '--post', 'https://app.example.test/x'])).toThrow(/on this machine/)
     expect(() => parseArgs(['--order', '1', '--post', 'nope'])).toThrow(/not a URL/)
@@ -68,6 +78,11 @@ describe('matching and paging helpers', () => {
     expect(matchesOrder(entry('a', '000000202'), '000000201')).toBe(false)
     expect(matchesOrder({ event: { data: { value: { increment_id: '000000201' } } } }, '000000201')).toBe(false)
     expect(matchesOrder({}, '000000201')).toBe(false)
+  })
+  test('a CloudEvent-shaped entry matches and uses event.id', () => {
+    const ce = { specversion: '1.0', id: 'ce-1', type: 't', source: 's', data: { value: { order: { increment_id: '000000201' } } } }
+    expect(matchesOrder({ position: 'p', event: ce }, '000000201')).toBe(true)
+    expect(eventId({ position: 'p', event: ce })).toBe('ce-1')
   })
   test('nextLink resolves the rel="next" link against the journal URL', () => {
     expect(nextLink('</events/x?since=9>; rel="next"', 'https://j.example.test/events/a')).toBe('https://j.example.test/events/x?since=9')
@@ -124,6 +139,101 @@ describe('run', () => {
     expect(r.out).toEqual(['0 event(s) read, 0 for order 000000201, 0 for other orders (not listed)'])
     expect(net.gets).toHaveLength(1)
     expect(net.posts).not.toHaveBeenCalled()
+  })
+
+  test('--dry-run behaves as the default', async () => {
+    const net = fakeNet([[entry('e1', '1')]])
+    const r = await runCli(['--order', '1', '--dry-run'], net)
+    expect(r.code).toBe(0)
+    expect(r.out[0]).toBe('event e1 order 1 (dry run)')
+    expect(net.posts).not.toHaveBeenCalled()
+  })
+
+  test('a CloudEvent-shaped entry is found and posted by its event.id', async () => {
+    const ce = { specversion: '1.0', id: 'ce-1', type: 't', source: 's', data: { value: { order: { increment_id: '7' } } } }
+    const net = fakeNet([[{ position: 'p1', event: ce }]], [200])
+    const r = await runCli(['--order', '7', '--post', HANDLER], net)
+    expect(r.out[0]).toBe('event ce-1 -> 200')
+  })
+
+  test('51 pages: stops after the cap and says so', async () => {
+    const net = fakeNet(Array.from({ length: MAX_PAGES + 1 }, (_, i) => [entry(`e${i}`, '1')]))
+    const r = await runCli(['--order', '1'], net)
+    expect(net.gets).toHaveLength(MAX_PAGES)
+    expect(r.code).toBe(0)
+    expect(r.errs).toContain('stopped after 50 pages; more events may exist')
+    expect(r.out.at(-1)).toMatch(/^50 event\(s\) read/)
+    const p = await pullEvents(fakeNet([[entry('a', '1')], [entry('b', '1')], [entry('c', '1')]]).fetchImpl, buildRequest(ENV, TOKEN), 2)
+    expect(p.truncated).toBe(true)
+    expect(p.entries).toHaveLength(2)
+  })
+
+  test('a short journal is not reported as truncated', async () => {
+    const r = await runCli(['--order', '1'], fakeNet([[entry('e1', '1')]]))
+    expect(r.errs).toEqual([])
+  })
+
+  test('a next link to another host is not followed and the token is not sent there', async () => {
+    for (const link of ['<https://evil.test/next>; rel="next"', '<http://journal.example.test/next>; rel="next"']) {
+      const gets = []
+      const fetchImpl = async (url, options) => {
+        gets.push(url)
+        return { status: 200, headers: new Map([['link', link]]), json: async () => ({ events: [entry('e1', '1')] }) }
+      }
+      const r = await runCli(['--order', '1'], { fetchImpl })
+      expect(gets).toEqual([ENV.JOURNAL_URL])
+      expect(r.code).toBe(0)
+      expect(r.errs).toContain('next link to another host ignored')
+      expect(r.out[0]).toBe('event e1 order 1 (dry run)')
+    }
+  })
+
+  test('a 200 page without a Link header stops paging', async () => {
+    const gets = []
+    const fetchImpl = async (url) => { gets.push(url); return { status: 200, headers: new Map(), json: async () => ({ events: [entry('e1', '1')] }) } }
+    const r = await runCli(['--order', '1'], { fetchImpl })
+    expect(gets).toHaveLength(1)
+    expect(r.code).toBe(0)
+    expect(r.out.at(-1)).toMatch(/^1 event\(s\) read/)
+  })
+
+  test('a 200 page with an empty events array stops paging', async () => {
+    const gets = []
+    const fetchImpl = async (url) => { gets.push(url); return { status: 200, headers: new Map([['link', '</n>; rel="next"']]), json: async () => ({ events: [] }) } }
+    const r = await runCli(['--order', '1'], { fetchImpl })
+    expect(gets).toHaveLength(1)
+    expect(r.out).toEqual(['0 event(s) read, 0 for order 1, 0 for other orders (not listed)'])
+  })
+
+  test('a non-200 on a later page fails with its status', async () => {
+    let n = 0
+    const fetchImpl = async () => (++n === 1
+      ? { status: 200, headers: new Map([['link', '</n>; rel="next"']]), json: async () => ({ events: [entry('e1', '1')] }) }
+      : { status: 500, headers: new Map(), json: async () => ({}) })
+    const r = await runCli(['--order', '1'], { fetchImpl })
+    expect(r.code).toBe(1)
+    expect(r.errs.join('')).toMatch(/journal answered 500/)
+  })
+
+  test('--post does not follow redirects: a 307 is a failure', async () => {
+    const e1 = entry('e1', '1')
+    const net = fakeNet([[e1]], [307])
+    const r = await runCli(['--order', '1', '--post', HANDLER], net)
+    expect(r.code).toBe(1)
+    expect(net.posts.mock.calls[0][1].redirect).toBe('manual')
+    expect(r.errs.join('')).toMatch(/post redirected, not followed/)
+    expect(r.out.join('')).not.toMatch(/-> 307/)
+  })
+
+  test('a failed --post shows the cause code', async () => {
+    const base = fakeNet([[entry('e1', '1')]])
+    const fetchImpl = async (url, options) => {
+      if (options.method === 'POST') throw Object.assign(new TypeError('fetch failed'), { cause: { code: 'ECONNREFUSED' } })
+      return base.fetchImpl(url, options)
+    }
+    const r = await runCli(['--order', '1', '--post', HANDLER], { fetchImpl })
+    expect(r.code).toBe(1)
+    expect(r.errs.join('')).toMatch(/fetch failed \(ECONNREFUSED\)/)
   })
 
   test('a missing --order exits 2 before any request', async () => {
