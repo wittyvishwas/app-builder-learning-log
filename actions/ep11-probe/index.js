@@ -3,8 +3,10 @@
  * runtime (or under `aio app dev`) and says which ones worked. ?op=state | files | db.
  * The answer holds call names and error messages only, never params, keys or tokens.
  * The calls live in probe.js, which dev/run-ep11/state-probe.js shares.
- * Gated in code: it answers 403 unless EP11_PROBE_ENABLED is '1'. That input comes from app.config.yaml
- * ($EP11_PROBE_ENABLED), so set it only in the shell that starts `aio app dev`, never in .env.
+ * A non-web action (app.config.yaml), so deployed it needs the namespace auth to invoke; `aio app dev` serves it
+ * over HTTP anyway. Second guard in code: it answers 403 unless EP11_PROBE_ENABLED is '1'. That input comes from
+ * app.config.yaml ($EP11_PROBE_ENABLED), so set it only in the shell that starts `aio app dev`, never in .env.
+ * An invoker can override inputs with params, so this gate alone is not a protection.
  */
 const { Core } = require('@adobe/aio-sdk')
 const stateLib = require('@adobe/aio-lib-state')
@@ -19,9 +21,9 @@ async function main (params) {
   if (op === 'state') results = await probeState(stateLib)
   else if (op === 'files') results = await probeFiles(filesLib)
   else if (op === 'db') {
-    // Needs include-ims-credentials: true in app.config.yaml (the OAuth credentials generateAccessToken uses).
+    // Needs include-ims-credentials: true in app.config.yaml (the OAuth credentials and IMS env generateAccessToken uses).
     results = await probeDb(libDb, async () => {
-      const token = await Core.AuthClient.generateAccessToken({ __ims_oauth_s2s: params.__ims_oauth_s2s })
+      const token = await Core.AuthClient.generateAccessToken({ __ims_oauth_s2s: params.__ims_oauth_s2s, __ims_env: params.__ims_env })
       return { token: token.access_token }
     })
   } else {

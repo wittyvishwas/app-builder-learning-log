@@ -160,19 +160,21 @@ application:
               memory: 256
           # Ep 11: test helper, never deploy to Production. Runs State, Files and Database Storage calls (?op=state|files|db)
           # and returns which ones worked (actions/ep11-probe). It deploys with every `aio app deploy`, like the others here.
+          # Non-web on purpose: deployed, only a caller with the namespace auth can invoke it. A web action with
+          # require-adobe-auth becomes a web sequence in front of `__secured_ep11-probe`, request params reach the action
+          # and override its inputs (EP11_PROBE_ENABLED included), and `final` does not protect the inner action.
+          # `aio app dev` still serves it over HTTP (with a warning): https://localhost:9080/api/v1/web/dev/ep11-probe?op=...
           ep11-probe:
             function: actions/ep11-probe/index.js
             runtime: nodejs:20
-            web: 'yes'
+            web: 'no'
             inputs:
               LOG_LEVEL: info
-              # The action answers 403 unless this is '1'. Set it only in the shell of `aio app dev`, never in .env.
+              # Second guard: the action answers 403 unless this is '1'. Set it only in the shell of `aio app dev`, never in .env.
               EP11_PROBE_ENABLED: $EP11_PROBE_ENABLED
             annotations:
-              require-adobe-auth: true
               # The db op needs the workspace's OAuth credentials for aio-lib-db's token.
               include-ims-credentials: true
-              final: true
 # Ep 9: Admin UI SDK v1 extension (the page in the Commerce admin). Layout copied from Adobe's sample
 # adobe-commerce-samples/admin-ui-sdk/v1/menu/custom-menu. Version 2 would be commerce/backend-ui/2.
 extensions:

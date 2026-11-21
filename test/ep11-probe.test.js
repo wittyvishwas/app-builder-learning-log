@@ -159,10 +159,10 @@ test('db op: the inserted document carries an id and findOne filters on it', asy
   expect(inserted[0].id).toMatch(/^[0-9a-f]{12}$/)
 })
 
-test('the db op passes only __ims_oauth_s2s to generateAccessToken', async () => {
+test('the db op passes only __ims_oauth_s2s and __ims_env to generateAccessToken', async () => {
   mockDb = dbWithDrop()
-  await main({ op: 'db', __ims_oauth_s2s: { client_id: 'c' }, SECRET_PARAM: 'x', __ow_headers: { authorization: 'Bearer y' } })
-  expect(mockAuth).toHaveBeenCalledWith({ __ims_oauth_s2s: { client_id: 'c' } })
+  await main({ op: 'db', __ims_oauth_s2s: { client_id: 'c' }, __ims_env: 'stage', SECRET_PARAM: 'x', __ow_headers: { authorization: 'Bearer y' } })
+  expect(mockAuth).toHaveBeenCalledWith({ __ims_oauth_s2s: { client_id: 'c' }, __ims_env: 'stage' })
 })
 
 test.each([[undefined], [''], ['0'], ['true'], [1]])('disabled (EP11_PROBE_ENABLED %p) answers 403 and calls nothing', async flag => {
@@ -177,17 +177,20 @@ test('no params at all answers 403', async () => {
   expect((await probeMain()).statusCode).toBe(403)
 })
 
-test('app.config.yaml: ep11-probe is a web action behind require-adobe-auth and final', () => {
-  // The refusal itself comes from the Runtime wrapper (web: yes + require-adobe-auth). Under `aio app dev` it is only
-  // a check that the authorization and org headers are present, not that the token is valid.
+test('app.config.yaml: ep11-probe is a non-web action with the enable gate input', () => {
+  // Deployed, a non-web action can only be invoked with the namespace auth. require-adobe-auth would turn it into a
+  // web sequence whose request params override the inputs (the gate included), and final does not protect the inner
+  // `__secured_` action, so neither may come back. Under `aio app dev` it is still served over HTTP, with a warning.
   const cfg = require('fs').readFileSync(require('path').join(__dirname, '../app.config.yaml'), 'utf8')
   const start = cfg.indexOf('\n          ep11-probe:')
   expect(start).toBeGreaterThan(-1)
   const next = cfg.indexOf('\nextensions:', start)
   const block = cfg.slice(start, next === -1 ? undefined : next)
-  expect(block).toMatch(/^\s+web: 'yes'$/m)
-  expect(block).toMatch(/^\s+require-adobe-auth: true$/m)
-  expect(block).toMatch(/^\s+final: true$/m)
+  expect(block).toMatch(/^\s+web: 'no'$/m)
+  expect(block).not.toMatch(/web: 'yes'|web: true|web-export/)
+  expect(block).not.toMatch(/^\s+require-adobe-auth:/m)
+  expect(block).not.toMatch(/^\s+final:/m)
+  expect(block).toMatch(/^\s+include-ims-credentials: true$/m)
   expect(block).toMatch(/^\s+EP11_PROBE_ENABLED: \$EP11_PROBE_ENABLED$/m)
 })
 
