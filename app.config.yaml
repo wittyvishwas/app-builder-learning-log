@@ -158,6 +158,19 @@ application:
             limits:
               timeout: 60000
               memory: 256
+          # Ep 11: test helper, never deploy to Production. Runs State, Files and Database Storage calls (?op=state|files|db)
+          # and returns which ones worked (actions/ep11-probe). It deploys with every `aio app deploy`, like the others here.
+          ep11-probe:
+            function: actions/ep11-probe/index.js
+            runtime: nodejs:20
+            web: 'yes'
+            inputs:
+              LOG_LEVEL: info
+            annotations:
+              require-adobe-auth: true
+              # The db op needs the workspace's OAuth credentials for aio-lib-db's token.
+              include-ims-credentials: true
+              final: true
 # Ep 9: Admin UI SDK v1 extension (the page in the Commerce admin). Layout copied from Adobe's sample
 # adobe-commerce-samples/admin-ui-sdk/v1/menu/custom-menu. Version 2 would be commerce/backend-ui/2.
 extensions:
