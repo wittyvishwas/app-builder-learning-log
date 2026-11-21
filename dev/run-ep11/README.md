@@ -12,7 +12,8 @@ Run date: 2026-11-21. Stage test workspace (the Ep 8–10 one), a local Adobe Co
 
 - `aio where` (global) shows a different project than the repo's `.aio`. Every `aio` command in this run is run inside the repo; `aio event registration list` there lists the repo workspace.
 - `stuckOrdersSchedule`: inactive
-- `aio rt action get ops/stuck-orders | sha256sum`: `918457b6988c87ba…`
+- `aio rt action get ops/stuck-orders | sha256sum`: `918457b6988c87ba…` (whole output)
+- `ops/stuck-orders` code saved with `aio rt action get --save-as` before wskdebug: sha256 `3407862959f8bf36…`; annotations `web-export=false`, `whisk-managed`, `final=true`, `exec=nodejs:20`, `include-ims-credentials=true`, `raw-http=false`
 - Event registrations in the workspace: 8
 - Runtime actions in the namespace: 30
 
@@ -22,11 +23,24 @@ Run date: 2026-11-21. Stage test workspace (the Ep 8–10 one), a local Adobe Co
 
 - Task 4 wskdebug on `ops/stuck-orders`: the agent replaced the action and stayed behind after run 1 died. The backup action `ops/stuck-orders_wskdebug_original` was deleted by mistake before the annotations were checked, so wskdebug could not restore it (run 2: "Agent is already installed and action backup is missing"). An update with the saved original code left the agent annotations (`description`, `wskdebug=true`, `provide-api-key=true`): Runtime merges annotations on update. Restored by delete + create from the code saved before the run (`--save-as`) and the current params. Check: annotations equal the baseline six (`web-export=false`, `whisk-managed`, `final=true`, `exec`, `include-ims-credentials=true`, `raw-http=false`), code sha256 `3407862959f8bf36…` = baseline, 8 params, limits unchanged, 0 `*wskdebug*` actions, no wskdebug container, rule inactive.
 
+- Global `aio` selection: switched to this repo's project and Stage workspace for the run (the guard needs it); switched back at the end, `aio where` equals the saved before-state.
+- `npm i -g @openwhisk/wskdebug` for Task 4: removed with `npm rm -g` (`npm ls -g` shows none).
+- The temporary wskdebug props file (`WSK_CONFIG_FILE`, mode 600): deleted.
+- `.env` `JOURNAL_URL` (Task 5): added for the run, removed from a backup copy; journal registration deleted by id, registration ids equal the baseline.
+- `order_claims` test rows (Task 5): deleted (0 left); ep11-probe DB collection dropped by the probe itself.
+- `stuckOrdersSchedule`: enabled 17:13 UTC, disabled 17:23 UTC, re-checked inactive; `orderSyncRetrySchedule` untouched, inactive.
+- Local Commerce, Task 8 (Admin UI SDK rows): see `undo-task8.log` in this folder; the stand-in registry ran on port 9090, separate from `aio app dev` on 9080.
+- Local Commerce, Task 6 (webhooks): see the Webhooks section.
+- Task 9 check: `aio rt action list` on Stage (72 actions, paged) shows no `ep11-probe` and no `__secured_ep11-probe`.
+
 ## Results
 
 (one line per probe: `RUN: works`, `RUN: fails (<message>)` or `DOCS ONLY (<why>)`, and where it ran: local Node, Runtime, wskdebug container)
 
 ### Task 1: actions under `aio app dev` (local Node)
+
+Run at commit af3569a, while `ep11-probe` was still a `require-adobe-auth` web action (4 web and 5 non-web actions then; at the tag it is 3 and 6). The `require-adobe-auth` lines below come from that version.
+
 
 - `aio app dev` with no flag: RUN: fails ("Your app implements multiple extensions. You can only run one at the time, please select which extension to run with the '-e' flag"). The app has `application` and `commerce/backend-ui/1`.
 - `aio app dev -e application`: RUN: works. Generated a self-signed certificate, served on `https://localhost:9080`, listed 4 web and 5 non-web actions, watches `actions/`.
@@ -40,7 +54,7 @@ Run date: 2026-11-21. Stage test workspace (the Ep 8–10 one), a local Adobe Co
 - Start the run with the probe gated on: `EP11_PROBE_ENABLED=1 aio app dev -e application` (set it in that shell only, never in `.env`). Without it the ep11-probe action answers 403 `{"error":"ep11-probe disabled"}`.
 - ep11-probe is now a non-web action (`web: 'no'`, no `require-adobe-auth`/`final`; commit "ep11: probe is a non-web action (deploy-safe), pass __ims_env"). Local call under `aio app dev -e application`: `https://localhost:9080/api/v1/web/dev/ep11-probe?op=state|files|db` (`/api/v1/dev/ep11-probe` also works; served with the "serving non-web action" warning, no auth headers needed). Task 9 undo check: `aio rt action list` on Stage shows neither `ep11-probe` nor `__secured_ep11-probe`.
 
-## Probe live (2026-11-21, aio app dev -e application with EP11_PROBE_ENABLED=1; guard.sh OK before each run)
+## Probe live (2026-11-21, aio app dev -e application with EP11_PROBE_ENABLED=1; guard.sh OK before each run; run on the final non-web probe, commit 47376c1)
 
 | Service | (a) plain Node script, .env namespace creds | (b) ep11-probe under `aio app dev` |
 |---|---|---|
@@ -67,8 +81,23 @@ Locally a query param does not override the action's inputs (`?EP11_PROBE_ENABLE
 
 - Setup (local Commerce, developer mode, no webhooks before): the repo's `commerce/CartCheck` module copied in with `sslVerification="false"` added to the hook (copy only), `module:enable`; signing switched on with a new key pair (same code as the admin "Generate Keys" button) and "Validate Webhook Destinations" = No, for the run only. `aio app dev -e application` with `PUBLIC_KEY` set to that public key in the process env (no `.env` edit). Commerce reaches it at `https://host.docker.internal:9080` from the PHP container.
 - RUN, fails (Local): `webhooks:dev:run observer.sales_quote_add_item:before` with `MMTEST-RESTRICTED-1` and `MMTEST-OK-1`: the local action answered `exception` for both ("request has no signature or no body"). Cause, from the aio-cli-plugin-app-dev source (`run-dev.js`, `isRawWebAction`): it treats an action as raw only for `web: 'raw'` (or `web-export: raw`); the `raw-http: true` annotation that `cart-check` uses is ignored, so the JSON body is parsed into params and `__ow_body` is missing. A `raw-http` webhook with a signature check can't be tested under `aio app dev` as deployed. (Not worked around.)
-- RUN (Local + Stage): the same `dev:run` against the deployed `webhooks/cart-check`: first call timed out at the hook's 2000 ms (cold start), the second answered `exception` in 0.7 s (over the 500 ms soft timeout). Expected refusal: the local signing key is not the one in the deployed `PUBLIC_KEY`. The deployed signature path itself is proven in Ep 7 (Stage).
+- RUN (Local + Stage): the same `dev:run` against the deployed `webhooks/cart-check`: first call timed out at the hook's 2000 ms (cold start), the second answered `exception` in 0.7 s (over the 500 ms soft timeout). Likely cause: the local signing key is not the one in the deployed `PUBLIC_KEY` (assumed: the activation result was not read; `activation list` did not show it). Not a pass. The deployed signature path itself is proven in Ep 7 (Stage).
 - Undo: module disabled, `app/etc/config.php` restored (sha = baseline), the four `commerce_webhooks/*` rows deleted (0 left), cache flushed; `git status --short` and `webhooks:list` (empty) equal the baseline.
+
+## API Mesh (2026-11-21, local Node)
+
+- RUN: `aio api-mesh init` in a folder outside the repo (flags; it still asks once, answered `y`), first `npm install` about 10 minutes. `aio api-mesh run mesh.json --port 9000` with the Ep 8 `v2` mesh (`node dev/run-ep8/render.js v2`), sources = Commerce staging GraphQL and the deployed `fake-reviews` action. Nothing was created, updated or purged on the workspace's mesh.
+- RUN: batching. The deployed fake's `/calls` count went 0 → 1 → 2 over two product-list queries: one reviews call per query with all 17 SKUs (`skus=a,b,c`).
+- RUN: cache headers. Two repeated POSTs both answered `Cache-Control: no-store`, no `Cache-Status`, no `Age`, and both reached the reviews source. The sources send `no-store`, so this does not show whether the local server would cache a cacheable source (untested). The edge cache stays deploy-only (Ep 8).
+- Stop: SIGINT ended `aio api-mesh run` but left its wrangler/workerd children holding the port until they got TERM.
+
+## Admin UI SDK local testing (2026-11-21)
+
+- Local Commerce (PaaS, `Magento_CommerceBackendUix` 3.4.1), `aio app dev -e commerce/backend-ui/1` on 9080. With Enable local testing = Yes, the module sends its App Registry call to `<Local Server Base URL>/myxchng/v1/org/<org>/xtn/commerce/backend-ui/1?...` (module source), so the base URL is a registry stand-in, not `aio app dev`. A 10-line stand-in on 9090 (outside the repo, like Adobe's sample `server.js`) returned one entry whose `view[0].href` pointed at `https://host.docker.internal:9080/index.html`.
+- RUN (from PHP in the container, not a browser): the registry fetch read 1 entry; the registration fetch called the local `registration` action (200 in the `aio app dev` log) and built the menu: section "Apps", item "Stuck orders".
+- Finding: only the registry fetcher turns off SSL verification in local testing; a plain call to the self-signed `aio app dev` certificate fails. The registration fetch worked in the same PHP process after the registry fetch; in a real admin request: unverified.
+- NOT RUN: the page in the admin iframe (the browser could not open the local admin).
+- Undo: `undo-task8.log` (three config rows deleted, cache flushed).
 
 ## Grid (what this run showed)
 
@@ -82,6 +111,6 @@ Locally a query param does not override the action's inputs (`?EP11_PROBE_ENABLE
 | Cron (3, 10) | call the action by hand; no triggers under `aio app dev` | RUN, fails: wskdebug (502) | RUN: alarm fired the action |
 | Log forwarding (5) | terminal logs | `aio app logs` (Ep 5) | forwarding (Ep 5) |
 | Commerce events (6, 10) | RUN: saved payload to the handler | RUN: journaling dry run, 0 events | DOCS ONLY: I/O Events delivery, retries (retries measured in Ep 6) |
-| Webhooks (7) | RUN, fails: `raw-http` ignored by `aio app dev` | RUN: local Commerce → deployed action (refused: different key) | signed path (Ep 7) |
+| Webhooks (7) | RUN, fails: `raw-http` ignored by `aio app dev` | RUN: local Commerce → deployed action, refused (likely the different key; not a pass) | signed path (Ep 7) |
 | API Mesh (8) | RUN: `aio api-mesh run`, batching, no cache | sources = deployed actions (same run) | edge cache (Ep 8) |
 | Admin UI (9) | RUN: menu from `aio app dev` via a registry stand-in; page not opened | proven in Ep 9 | – |
