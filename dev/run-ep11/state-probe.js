@@ -17,7 +17,8 @@ function scrubber (env) {
   return text => secrets.reduce((t, s) => t.split(s).join('***'), String(text))
 }
 
-async function main (argv, env) {
+// `libs` lets a test inject fakes for the SDK pieces; it defaults to the real ones, required only when used.
+async function main (argv, env, libs = {}) {
   const scrub = scrubber(env)
   const lines = []
   const report = (lib, results) => {
@@ -27,8 +28,8 @@ async function main (argv, env) {
     need(env, ['IMS_OAUTH_S2S_CLIENT_ID', 'IMS_OAUTH_S2S_CLIENT_SECRET', 'IMS_OAUTH_S2S_ORG_ID', 'IMS_OAUTH_S2S_SCOPES'])
     const namespace = env.AIO_RUNTIME_NAMESPACE || env.AIO_runtime_namespace
     if (!namespace) throw new Error('missing in .env: AIO_runtime_namespace')
-    const { Core } = require('@adobe/aio-sdk')
-    report('db', await probeDb(require('@adobe/aio-lib-db'), async () => {
+    const Core = libs.Core || require('@adobe/aio-sdk').Core
+    report('db', await probeDb(libs.db || require('@adobe/aio-lib-db'), async () => {
       const token = await Core.AuthClient.generateAccessToken({
         clientId: env.IMS_OAUTH_S2S_CLIENT_ID,
         clientSecret: env.IMS_OAUTH_S2S_CLIENT_SECRET,
@@ -40,8 +41,8 @@ async function main (argv, env) {
   } else {
     need(env, ['AIO_runtime_namespace', 'AIO_runtime_auth'])
     const init = { ow: { namespace: env.AIO_runtime_namespace, auth: env.AIO_runtime_auth } }
-    report('state', await probeState(require('@adobe/aio-lib-state'), init))
-    report('files', await probeFiles(require('@adobe/aio-lib-files'), init))
+    report('state', await probeState(libs.state || require('@adobe/aio-lib-state'), init))
+    report('files', await probeFiles(libs.files || require('@adobe/aio-lib-files'), init))
   }
   return lines
 }
@@ -51,8 +52,9 @@ module.exports = { main, scrubber }
 if (require.main === module) {
   let env
   try { env = loadEnv() } catch (e) { console.error(`state-probe: cannot read .env (${e.code || e.message})`); process.exit(2) }
+  const scrub = scrubber(env) // built before main, so the final error line is masked too
   main(process.argv.slice(2), env).then(lines => lines.forEach(l => console.log(l))).catch(e => {
-    console.error(`state-probe: unexpected failure: ${e.message}`)
+    console.error(`state-probe: unexpected failure: ${scrub(e.message)}`)
     process.exit(1)
   })
 }

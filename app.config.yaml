@@ -166,6 +166,8 @@ application:
             web: 'yes'
             inputs:
               LOG_LEVEL: info
+              # The action answers 403 unless this is '1'. Set it only in the shell of `aio app dev`, never in .env.
+              EP11_PROBE_ENABLED: $EP11_PROBE_ENABLED
             annotations:
               require-adobe-auth: true
               # The db op needs the workspace's OAuth credentials for aio-lib-db's token.

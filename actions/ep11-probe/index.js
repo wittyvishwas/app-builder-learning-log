@@ -3,6 +3,8 @@
  * runtime (or under `aio app dev`) and says which ones worked. ?op=state | files | db.
  * The answer holds call names and error messages only, never params, keys or tokens.
  * The calls live in probe.js, which dev/run-ep11/state-probe.js shares.
+ * Gated in code: it answers 403 unless EP11_PROBE_ENABLED is '1'. That input comes from app.config.yaml
+ * ($EP11_PROBE_ENABLED), so set it only in the shell that starts `aio app dev`, never in .env.
  */
 const { Core } = require('@adobe/aio-sdk')
 const stateLib = require('@adobe/aio-lib-state')
@@ -11,14 +13,15 @@ const libDb = require('@adobe/aio-lib-db')
 const { probeState, probeFiles, probeDb } = require('./probe')
 
 async function main (params) {
-  const op = params && params.op
+  if (!params || params.EP11_PROBE_ENABLED !== '1') return { statusCode: 403, body: { error: 'ep11-probe disabled' } }
+  const op = params.op
   let results
   if (op === 'state') results = await probeState(stateLib)
   else if (op === 'files') results = await probeFiles(filesLib)
   else if (op === 'db') {
     // Needs include-ims-credentials: true in app.config.yaml (the OAuth credentials generateAccessToken uses).
     results = await probeDb(libDb, async () => {
-      const token = await Core.AuthClient.generateAccessToken(params)
+      const token = await Core.AuthClient.generateAccessToken({ __ims_oauth_s2s: params.__ims_oauth_s2s })
       return { token: token.access_token }
     })
   } else {
