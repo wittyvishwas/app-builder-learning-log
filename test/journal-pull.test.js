@@ -267,4 +267,45 @@ describe('run', () => {
       expect(r.all).not.toContain(API_KEY)
     }
   })
+
+  test('the journal GET is sent with redirect manual', async () => {
+    expect(buildRequest(ENV, TOKEN).options.redirect).toBe('manual')
+    const net = fakeNet([[entry('e1', '1')]])
+    await runCli(['--order', '1'], net)
+    expect(net.gets.every(g => g.options.redirect === 'manual')).toBe(true)
+  })
+
+  test('a 302 page answer fails with the status only', async () => {
+    const fetchImpl = async () => ({ status: 302, headers: new Map([['location', 'https://evil.test/steal']]), json: async () => ({}) })
+    const r = await runCli(['--order', '1'], { fetchImpl })
+    expect(r.code).toBe(1)
+    expect(r.errs.join('')).toMatch(/journal answered 302/)
+    expect(r.all).not.toContain('evil.test')
+  })
+
+  test('an http:// JOURNAL_URL is refused before any fetch', async () => {
+    const net = fakeNet([[entry('e1', '1')]])
+    let tokenAsked = false
+    const errs = []
+    const code = await run({
+      argv: ['--order', '1'],
+      env: { ...ENV, JOURNAL_URL: 'http://journal.example.test/events' },
+      fetchImpl: net.fetchImpl,
+      getToken: async () => { tokenAsked = true; return TOKEN },
+      log: () => {},
+      err: m => errs.push(m)
+    })
+    expect(code).toBe(1)
+    expect(errs.join('')).toMatch(/JOURNAL_URL must be an https URL/)
+    expect(net.gets).toHaveLength(0)
+    expect(tokenAsked).toBe(false)
+  })
+
+  test('an error message containing an env value is printed masked, with the cause code kept', async () => {
+    const fetchImpl = async () => { throw Object.assign(new TypeError(`fetch failed for ${API_KEY}`), { cause: { code: 'ECONNRESET' } }) }
+    const r = await runCli(['--order', '1'], { fetchImpl })
+    expect(r.code).toBe(1)
+    expect(r.errs.join('')).toBe('journal-pull failed: fetch failed for *** (ECONNRESET)')
+    expect(r.all).not.toContain(API_KEY)
+  })
 })

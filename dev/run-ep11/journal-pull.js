@@ -23,6 +23,7 @@
  * The pure parts are exported and unit-tested (test/journal-pull.test.js); the CLI wrapper at the bottom is thin.
  */
 const { loadEnv, need } = require('../run-ep8/env')
+const { scrubber } = require('./state-probe')
 
 const MAX_PAGES = 50
 const LOCAL_HOSTS = new Set(['localhost', '127.0.0.1', '[::1]', 'host.docker.internal'])
@@ -74,6 +75,7 @@ function buildRequest (env, token) {
     url: env.JOURNAL_URL,
     options: {
       method: 'GET',
+      redirect: 'manual', // a redirect would carry the bearer token to wherever it points: a 3xx is an error
       headers: { Authorization: `Bearer ${token}`, 'x-api-key': apiKey, 'x-ims-org-id': env.IMS_OAUTH_S2S_ORG_ID }
     }
   }
@@ -106,7 +108,7 @@ async function pullEvents (fetchImpl, request, maxPages = MAX_PAGES) {
     if (page++ >= maxPages) { truncated = true; break }
     const res = await fetchImpl(url, request.options)
     if (res.status === 204) break
-    if (res.status !== 200) throw new Error(`journal answered ${res.status}`)
+    if (res.status !== 200) throw new Error(`journal answered ${res.status}`) // includes 3xx: redirects are never followed
     const body = await res.json()
     const events = Array.isArray(body?.events) ? body.events : []
     if (!events.length) break
@@ -140,6 +142,9 @@ async function run ({ argv, env, fetchImpl, getToken, log = console.log, err = c
   try {
     need(env, ['JOURNAL_URL', 'IMS_OAUTH_S2S_ORG_ID'])
     if (!env.JOURNAL_API_KEY) need(env, ['IMS_OAUTH_S2S_CLIENT_ID'])
+    let journalUrl
+    try { journalUrl = new URL(env.JOURNAL_URL) } catch { throw new Error('JOURNAL_URL is not a URL') }
+    if (journalUrl.protocol !== 'https:') throw new Error('JOURNAL_URL must be an https URL (the bearer token is sent to it)')
     const { entries, truncated, foreignNext } = await pullEvents(fetchImpl, buildRequest(env, await getToken(env)))
     if (foreignNext) err('next link to another host ignored')
     if (truncated) err(`stopped after ${MAX_PAGES} pages; more events may exist`)
@@ -155,7 +160,7 @@ async function run ({ argv, env, fetchImpl, getToken, log = console.log, err = c
     log(`${entries.length} event(s) read, ${matching.length} for order ${args.order}, ${others} for other orders (not listed)`)
     return 0
   } catch (e) {
-    err(`journal-pull failed: ${e.message}${e.cause?.code ? ` (${e.cause.code})` : ''}`)
+    err(scrubber(env)(`journal-pull failed: ${e.message}${e.cause?.code ? ` (${e.cause.code})` : ''}`))
     return 1
   }
 }
