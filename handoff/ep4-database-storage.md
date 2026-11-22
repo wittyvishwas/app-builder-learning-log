@@ -109,7 +109,7 @@ Human steps (agent: stop and ask the human to do these):
    `document find` returns 20 documents by default and 100 at most.
 6. Gotcha: `findOne` with no match throws a `DbError` ("Document not found") on `aio-lib-db` 1.1.0 instead of returning `null`. The action uses `find` with `limit(1)` to avoid it. If you use `findOne`, catch that error.
 
-How far this is proven (README and post): on a real Stage workspace, `aio app deploy` provisioned the database in `emea`, the hook created indexes with the workspace's OAuth credential, and `sync-log` inserted a row, returned it, and answered 400 when `sku` was missing. The real run caught that `aio app use` writes the scopes as a JSON array and the namespace as `AIO_runtime_namespace`. The hook now accepts both.
+Tested on (README and post): on a real Stage workspace, `aio app deploy` provisioned the database in `emea`, the hook created indexes with the workspace's OAuth credential, and `sync-log` inserted a row, returned it, and answered 400 when `sku` was missing. The real run caught that `aio app use` writes the scopes as a JSON array and the namespace as `AIO_runtime_namespace`. The hook now accepts both.
 
 ## Names to rename
 | In the reference | Why it may differ in yours |

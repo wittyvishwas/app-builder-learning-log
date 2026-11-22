@@ -98,7 +98,7 @@ Human steps (agent: stop and ask the human to do these):
    ```
 5. If the rule shows as inactive, nothing runs and nothing errors. `aio rt rule enable stuckOrdersSchedule` fixes it. `aio app deploy` can switch a disabled rule back on. If the job should not run yet, run `aio rt rule disable stuckOrdersSchedule` after each deploy. Ask the human before you enable or disable a rule.
 
-How far this is proven (README at the tag): the job is unit-tested. On a real Stage workspace, State stored a value with a 7-day time to live, a deploy created the trigger and rule, and `aio rt rule disable` stopped them. The alarm fired, but without Commerce credentials the job returned an error, so the job and its alert have not run for real. The Files write has not run on a real workspace.
+Tested on (README at the tag): the job is unit-tested. On a real Stage workspace, State stored a value with a 7-day time to live, a deploy created the trigger and rule, and `aio rt rule disable` stopped them. The alarm fired, but without Commerce credentials the job returned an error, so the job and its alert have not run for real. The Files write has not run on a real workspace.
 
 ## Names to rename
 | In the reference | Why it may differ in yours |
