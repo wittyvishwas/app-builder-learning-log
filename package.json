@@ -5,7 +5,8 @@
   "description": "Code for the MageMinion 'Learn App Builder with me' series: a Magento developer learning Adobe App Builder in public.",
   "license": "Apache-2.0",
   "scripts": {
-    "test": "jest"
+    "test": "jest",
+    "check:handoffs": "node scripts/check-handoffs.js"
   },
   "dependencies": {
     "@adobe/aio-lib-db": "^1.1.0",

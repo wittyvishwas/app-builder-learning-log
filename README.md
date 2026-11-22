@@ -15,7 +15,7 @@ git checkout ep3-cron-state-files
 | `ep3-cron-state-files` | [Ep 3: cron, config and custom tables](https://mageminion.com/app-builder-ep3-cron-state-files/) | `stuck-orders`: an alarm trigger and rule every 15 minutes, a Commerce REST query for orders stuck in `pending_payment`, one alert per order (State with a 7-day TTL), a State lock against overlapping runs, and an optional daily CSV report in Files (`SAVE_REPORT: true`) |
 | `ep4-database-storage` | [Ep 4: Database Storage, when State isn't enough](https://mageminion.com/app-builder-ep4-database-storage/) | `sync-log`: an action that writes one row per export attempt to a collection and returns the latest failure for a SKU. The `database` block in `app.config.yaml` (auto-provisioned, region `emea`), `include-ims-credentials: true`, and a `post-app-deploy` hook that creates the indexes. `test/helpers.js` gains `fakeDb`, an in-memory aio-lib-db that later episodes reuse |
 | `ep5-log-forwarding` | [Ep 5: forward your action logs to New Relic](https://mageminion.com/app-builder-ep5-log-forwarding-new-relic/) | No new code: log forwarding is workspace configuration. The README section below lists the commands |
-| `ep6-commerce-events` | [Ep 6: replace an observer with a Commerce event](https://mageminion.com/app-builder-ep6-commerce-events/) | `events/order-placed`: handles `observer.sales_order_place_after` from I/O Events with only `order.increment_id` and `order.grand_total`, claims the order atomically in `order_claims` (unique index on `order`) before sending, so two deliveries of the same order can't both send, then sends it to the ERP (Idempotency-Key = order number), records the `sent` row, and answers 500 on failure so I/O Events retries. The tag `ep6-commerce-events` carries the claim version; the tags `ep7` to `ep10` keep the earlier handler (look, send, insert), which their posts don't show |
+| `ep6-commerce-events` | [Ep 6: replace an observer with a Commerce event](https://mageminion.com/app-builder-ep6-commerce-events/) | `events/order-placed`: handles `observer.sales_order_place_after` from I/O Events with only `order.increment_id` and `order.grand_total`, claims the order atomically in `order_claims` (unique index on `order`) before sending, so two deliveries of the same order can't both send, then sends it to the ERP (Idempotency-Key = order number), records the `sent` row, and answers 500 on failure so I/O Events retries. The tag `ep6-commerce-events` carries the claim version; the tags `ep7-webhooks` and `ep10-port-a-module` carry it too; only `ep8-api-mesh` and `ep9-admin-ui-sdk` keep the earlier handler (look, send, insert), which their posts don't show |
 | `ep7-webhooks` | [Ep 7: replace a plugin with a webhook](https://mageminion.com/app-builder-ep7-webhooks/) | `webhooks/cart-check`: a web action with `raw-http: true` that verifies Commerce's `x-adobe-commerce-webhook-signature` over the base64 body, then answers `success`, or `exception` with a message for a SKU in `RESTRICTED_SKUS`; a missing or invalid signature is refused. Plus `commerce/webhooks.xml` |
 | `ep8-api-mesh` | [Ep 8: API Mesh, one endpoint, and the truth about its cache](https://mageminion.com/app-builder-ep8-api-mesh/) | `mesh/mesh.json`: Commerce GraphQL and a REST reviews API behind one endpoint, joined with `keyField`/`keysArg`, mesh cache on. Endpoints are placeholders |
 | `ep9-admin-ui-sdk` | [Ep 9: a page in the Commerce admin with the Admin UI SDK](https://mageminion.com/app-builder-ep9-admin-ui-sdk/) | An Admin UI SDK v1 extension (`src/commerce-backend-ui-1/`, laid out like Adobe's custom-menu sample): a **Stuck orders** menu item and a React Spectrum page listing open alerts, with `list-alerts` and `mark-handled` actions behind `require-adobe-auth`. `stuck-orders` now also writes each alert to the `stuck_alerts` collection |
@@ -24,6 +24,25 @@ git checkout ep3-cron-state-files
 | `day-NN` | Developer log | One tag per session, with its write-up in [`log/`](log/) |
 
 The tag `ep8-api-mesh` still has `reviews` in `mesh/mesh.json`. Against Commerce the mesh build fails (`Field "SimpleProduct.reviews" already exists in the schema`). `main` has the fix: the field is `externalReviews`.
+
+## Agent hand-offs
+
+One file per episode in [`handoff/`](handoff/), written for a coding agent (Claude Code or similar). Give your agent the file inside your own App Builder project and it builds what that episode built: which files to read from which tag, the config, the tests, how to check the result, and the steps it must hand back to you (Developer Console, Commerce Admin, any deploy). Each file pins every path to a git ref; `npm run check:handoffs` checks that those paths exist (it needs the tags, so it is not run in CI).
+
+| Episode | Hand-off |
+|---|---|
+| Ep 2 | [`handoff/ep2-integration-starter-kit.md`](handoff/ep2-integration-starter-kit.md) (Adobe's starter kit, no code from this repo) |
+| Ep 3 | [`handoff/ep3-cron-state-files.md`](handoff/ep3-cron-state-files.md) |
+| Ep 4 | [`handoff/ep4-database-storage.md`](handoff/ep4-database-storage.md) |
+| Ep 5 | [`handoff/ep5-log-forwarding.md`](handoff/ep5-log-forwarding.md) |
+| Ep 6 | [`handoff/ep6-commerce-events.md`](handoff/ep6-commerce-events.md) |
+| Ep 7 | [`handoff/ep7-webhooks.md`](handoff/ep7-webhooks.md) |
+| Ep 8 | [`handoff/ep8-api-mesh.md`](handoff/ep8-api-mesh.md) |
+| Ep 9 | [`handoff/ep9-admin-ui-sdk.md`](handoff/ep9-admin-ui-sdk.md) |
+| Ep 10 | [`handoff/ep10-port-a-module.md`](handoff/ep10-port-a-module.md) |
+| Ep 11 | [`handoff/ep11-local-testing.md`](handoff/ep11-local-testing.md) |
+
+Ep 0 and Ep 1 have none: they explain concepts and the project layout.
 
 ## Order sync to an ERP
 
@@ -266,7 +285,7 @@ To use it, set `FAKE_ERP_API_KEY` and `ERP_API_KEY` to the same value in `.env` 
 
 Each piece is marked by how far it has been proven:
 
-- **Unit-tested:** `npm test` (389 tests, run in CI on Node 20 and 24) runs the actions with Commerce, the ERP, the alert webhook, State, Files and Database Storage faked. The database fake (`fakeDb` in `test/helpers.js`) supports equality, `$or`/`$and`, `$ne`, `$in`, `$lt`/`$lte`/`$gt`/`$gte`, `find().sort().limit().toArray()`, `updateOne` with `$set` and upsert, unique indexes, and throws `DbError`; it proves our logic, not the real service. The State fake behaves like aio-lib-state 5.4 where it matters: `ifNotExists` (the retry lock). That proves the mapping, retries, skipping a redelivered event, the retry rows, the lock, time budget, dead rows without personal data, one row per order across sent, retry and dead, no ERP body or error object in any log line, the stuck-order query, alert-then-remember, the report, and the webhook's signature check (real RSA keys, a tampered body, a base64 body, an escaped-newline PEM, a missing key answering 500). It doesn't prove a deployment. The fake ERP test helper is unit-tested the same way (State faked).
+- **Unit-tested:** `npm test` (406 tests, run in CI on Node 20 and 24) runs the actions with Commerce, the ERP, the alert webhook, State, Files and Database Storage faked. The database fake (`fakeDb` in `test/helpers.js`) supports equality, `$or`/`$and`, `$ne`, `$in`, `$lt`/`$lte`/`$gt`/`$gte`, `find().sort().limit().toArray()`, `updateOne` with `$set` and upsert, unique indexes, and throws `DbError`; it proves our logic, not the real service. The State fake behaves like aio-lib-state 5.4 where it matters: `ifNotExists` (the retry lock). That proves the mapping, retries, skipping a redelivered event, the retry rows, the lock, time budget, dead rows without personal data, one row per order across sent, retry and dead, no ERP body or error object in any log line, the stuck-order query, alert-then-remember, the report, and the webhook's signature check (real RSA keys, a tampered body, a base64 body, an escaped-newline PEM, a missing key answering 500). It doesn't prove a deployment. The fake ERP test helper is unit-tested the same way (State faked).
 - **Verified on a real Stage workspace** (several runs, Adobe Commerce on cloud infrastructure with commerce-eventing 1.23.0):
   - `aio app deploy --no-publish -e application` built and deployed the seven application actions on `nodejs:20`.
   - Database Storage was provisioned in `emea`. The post-deploy hook created the six indexes with the real OAuth credential (scopes as the JSON array `aio app use` writes).
