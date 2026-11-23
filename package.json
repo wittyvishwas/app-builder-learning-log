@@ -6,27 +6,56 @@
   "license": "Apache-2.0",
   "scripts": {
     "test": "jest",
-    "check:handoffs": "node scripts/check-handoffs.js"
+    "check:handoffs": "node scripts/check-handoffs.js",
+    "postinstall": "npx aio-commerce-lib-app hooks postinstall",
+    "typecheck:web-src": "tsc --noEmit -p src/commerce-backend-ui-2/web-src/tsconfig.json",
+    "typecheck": "npm run typecheck:web-src"
   },
   "dependencies": {
+    "@adobe/aio-commerce-lib-admin-ui": "^1.1.0",
+    "@adobe/aio-commerce-lib-app": "^2.0.0",
+    "@adobe/aio-commerce-sdk": "^2.0.0",
     "@adobe/aio-lib-db": "^1.1.0",
     "@adobe/aio-lib-files": "^4.1.4",
     "@adobe/aio-lib-state": "^5.4.0",
-    "@adobe/aio-sdk": "^6.0.0"
+    "@adobe/aio-sdk": "^6.0.0",
+    "@react-spectrum/s2": "^1.5.1",
+    "react": "^19.2.7",
+    "react-dom": "^19.2.7"
   },
   "devDependencies": {
-    "@adobe/exc-app": "^1.6.2",
-    "@adobe/react-spectrum": "^3.47.2",
-    "@adobe/uix-guest": "^1.1.10",
-    "core-js": "^3.49.0",
+    "@babel/core": "^7.29.7",
+    "@babel/preset-react": "^7.29.7",
+    "@tsconfig/bases": "^1.0.28",
+    "@types/node": "^24.13.4",
+    "@types/react": "^19.2.17",
+    "@types/react-dom": "^19.2.3",
     "jest": "^30.5.2",
-    "react": "^18.2.0",
-    "react-dom": "^18.2.0",
-    "react-error-boundary": "^3.1.4",
-    "react-router-dom": "^6.8.1",
-    "regenerator-runtime": "^0.14.1"
+    "ts-loader": "^9.6.2",
+    "typescript": "^6.0.3"
   },
   "engines": {
-    "node": ">=20"
+    "node": ">=22"
+  },
+  "imports": {
+    "#app.commerce.config": "./src/commerce-extensibility-1/.generated/app.commerce.config.js",
+    "#web/*": "./src/commerce-backend-ui-2/web-src/src/*"
+  },
+  "@parcel/resolver-default": {
+    "packageExports": true
+  },
+  "@parcel/bundler-default": {
+    "manualSharedBundles": [
+      {
+        "assets": [
+          "**/@react-spectrum/s2/**",
+          "src/commerce-backend-ui-2/web-src/*.{js,jsx,ts,tsx}"
+        ],
+        "name": "s2-styles",
+        "types": [
+          "css"
+        ]
+      }
+    ]
   }
 }

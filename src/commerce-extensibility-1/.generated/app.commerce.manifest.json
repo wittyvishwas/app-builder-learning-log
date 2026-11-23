@@ -1,0 +1,17 @@
+{
+  "adminUi": {
+    "menu": {
+      "description": "Open stuck-order alerts and export deliveries",
+      "id": "StuckOrders::stuck",
+      "label": "Stuck orders",
+      "pageTitle": "Stuck orders"
+    }
+  },
+  "metadata": {
+    "description": "Open stuck-order alerts and export deliveries",
+    "displayName": "Stuck orders",
+    "id": "stuck-orders",
+    "upgradeMode": "manual",
+    "version": "1.0.0"
+  }
+}
