@@ -15,7 +15,8 @@ try {
   validateCommerceAppConfig(JSON.parse(process.argv[1]))
   console.log(JSON.stringify({ ok: true }))
 } catch (e) {
-  console.log(JSON.stringify({ ok: false, message: e.message }))
+  const paths = (e.issues || []).map(i => (i.path || []).map(p => p.key).join('.'))
+  console.log(JSON.stringify({ ok: false, message: e.message, paths }))
 }`
 
 const validate = config => JSON.parse(execFileSync(process.execPath, ['-e', script, JSON.stringify(config)], {
@@ -39,5 +40,5 @@ test('our app config validates and has the Stuck orders menu entry', () => {
 test('a menu without a description does not validate', () => {
   const bad = copy()
   delete bad.adminUi.menu.description
-  expect(validate(bad)).toEqual({ ok: false, message: 'Invalid commerce app config' })
+  expect(validate(bad)).toEqual({ ok: false, message: 'Invalid commerce app config', paths: ['adminUi.menu.description'] })
 })

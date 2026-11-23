@@ -1,5 +1,5 @@
 # Ep 9: layout and hooks copied from Adobe's v2 custom-menu sample
-# (adobe-commerce-samples/admin-ui-sdk/v2/menu/custom-menu). Both data actions are web actions that need
+# (adobe-commerce-samples/admin-ui-sdk/v2/menu/custom-menu). The four data actions are web actions that need
 # the signed-in admin's Adobe identity (require-adobe-auth). Neither has a per-action ACL, so each action also checks the
 # token's client_id against ALLOWED_CLIENT_IDS (.env, comma-separated; empty refuses every call).
 web: web-src

@@ -9,7 +9,8 @@
     "check:handoffs": "node scripts/check-handoffs.js",
     "postinstall": "npx aio-commerce-lib-app hooks postinstall",
     "typecheck:web-src": "tsc --noEmit -p src/commerce-backend-ui-2/web-src/tsconfig.json",
-    "typecheck": "npm run typecheck:web-src"
+    "typecheck:actions": "tsc --noEmit -p tsconfig.json",
+    "typecheck": "npm run typecheck:web-src && npm run typecheck:actions"
   },
   "dependencies": {
     "@adobe/aio-commerce-lib-admin-ui": "^1.1.0",

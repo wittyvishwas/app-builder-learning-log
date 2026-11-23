@@ -44,6 +44,16 @@ describe.each(names)('StuckOrders/%s', name => {
   })
 })
 
+test('retry-delivery takes the Commerce inputs (a dead row keeps no order, so Retry fetches it again)', () => {
+  expect(stuck['retry-delivery'].inputs).toMatchObject({ COMMERCE_BASE_URL: '$COMMERCE_BASE_URL', COMMERCE_TOKEN: '$COMMERCE_TOKEN' })
+})
+
+test('the ops/stuck-orders job keeps include-ims-credentials (it writes stuck_alerts)', () => {
+  const app = load('app.config.yaml')
+  const job = app.application.runtimeManifest.packages.ops.actions['stuck-orders']
+  expect(job.annotations['include-ims-credentials']).toBe(true)
+})
+
 test('app.config.yaml includes backend-ui/2 and extensibility/1, and no backend-ui/1', () => {
   const app = load('app.config.yaml')
   expect(Object.keys(app.extensions)).toEqual(['commerce/backend-ui/2', 'commerce/extensibility/1'])
