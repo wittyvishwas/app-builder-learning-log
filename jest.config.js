@@ -24,6 +24,8 @@ module.exports = {
       displayName: 'web',
       testEnvironment: 'jsdom',
       testMatch: ['<rootDir>/test/web/**/*.test.[jt]s?(x)'],
+      // Observer stubs and a fixed element size, so S2's virtualized TableView renders rows in jsdom.
+      setupFiles: ['<rootDir>/test/web/setup.js'],
       transform: {
         '\\.[jt]sx?$': ['babel-jest', {
           configFile: false,
