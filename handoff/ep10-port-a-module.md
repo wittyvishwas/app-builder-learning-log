@@ -41,7 +41,8 @@ Most rows are at the Ep 10 tag. The order-sync fixes (the `findOne` no-match fix
 | `src/commerce-backend-ui-2/ext.config.yaml` | `main` | Extension config (Admin UI SDK version 2); adds the `list-deliveries` and `retry-delivery` web actions next to the Ep 9 ones | merge into yours (add the two actions) |
 | `src/commerce-backend-ui-2/actions/list-deliveries/index.js` | `main` | Returns recent deliveries and failures from `export_runs` for the admin page | add |
 | `src/commerce-backend-ui-2/actions/retry-delivery/index.js` | `main` | The Retry button's action: for a `dead` row, fetches the order again from Commerce and resends it | add |
-| `src/commerce-backend-ui-2/web-src/src/pages/main-page.tsx` | `main` | The Ep 9 page (React Spectrum 2, loaded by `createExtensionApp`), now with the Stuck orders and Deliveries tabs. The Deliveries tab is a table with a Retry button; its component file sits next to the page under `web-src/src/`, take its name from the `main` tree | merge into yours (add the tab) |
+| `src/commerce-backend-ui-2/web-src/src/pages/main-page.tsx` | `main` | The Ep 9 page (React Spectrum 2, loaded by `createExtensionApp`), now with the Stuck orders and Deliveries tabs | merge into yours (add the tab) |
+| `src/commerce-backend-ui-2/web-src/src/components/Deliveries.tsx` | `main` | The Deliveries tab: a table with a Retry button | add |
 | `commerce/OrderExport` | `ep10-port-a-module` | The stand-in PHP module (observer, retry cron, retry table, config) that the run ported. Comparison aid only | read only |
 | `scripts/compare-erp.js` | `ep10-port-a-module` | Prints what the app and the module each sent to the fake ERP, per order. Only for the side-by-side run | read only (optional) |
 | `actions/fake-erp/index.js` | `ep10-port-a-module` | A fake ERP as a public web action, so the side-by-side run has something to send to. Test helper | read only (optional, never deploy to Production) |

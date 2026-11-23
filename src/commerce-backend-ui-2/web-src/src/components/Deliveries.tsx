@@ -32,7 +32,7 @@ export function Deliveries({ ims }: { ims: Ims }) {
       setError((e as Error).message);
       setRows([]);
     }
-  }, [ims]);
+  }, [ims.imsToken, ims.imsOrgId]);
 
   useEffect(() => {
     load();
