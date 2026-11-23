@@ -25,7 +25,7 @@ git -C /tmp/abl fetch --tags
 ```
 
 ## Files
-Most rows are at the Ep 10 tag. The order-sync fixes (the `findOne` no-match fix and the sent-row fix) are already in that tag. The Admin UI rows (the page, the two admin actions and `ext.config.yaml`) are at `main`, because the Ep 9 hand-off now builds the page on Admin UI SDK version 2 (`src/commerce-backend-ui-2/`), and the `client_id` allowlist is part of those files (see the note under this table). The version 1 files are at the tag `ep10-port-a-module` (and `ep11-local-testing`) under `src/commerce-backend-ui-1/`; this hand-off no longer uses them.
+Most rows are at the Ep 10 tag. The order-sync fixes (the `findOne` no-match fix and the sent-row fix) are already in that tag. The Admin UI rows (the page, the two admin actions and `ext.config.yaml`) are at `ep9-admin-ui-sdk-v2`, because the Ep 9 hand-off now builds the page on Admin UI SDK version 2 (`src/commerce-backend-ui-2/`), and the `client_id` allowlist is part of those files (see the note under this table). The version 1 files are at the tag `ep10-port-a-module` (and `ep11-local-testing`) under `src/commerce-backend-ui-1/`; this hand-off no longer uses them.
 
 | Path | Ref | What it is | Do |
 |---|---|---|---|
@@ -38,16 +38,16 @@ Most rows are at the Ep 10 tag. The order-sync fixes (the `findOne` no-match fix
 | `actions/utils.js` | `ep10-port-a-module` | Input check and error response helpers used by the actions | merge into yours |
 | `scripts/post-deploy-db-setup.js` | `ep10-port-a-module` | The post-deploy hook that creates the database indexes, including the ones `export_runs` needs | merge only the `export_runs` index entries; the `order_claims` (Ep 6) and `stuck_alerts` (Ep 9) entries come from those hand-offs |
 | `app.config.yaml` | `ep10-port-a-module` | Root config: `export-order` and `export-order-retry` (the 10-minute alarm trigger and rule), the post-deploy hook, `include-ims-credentials: true` on the actions that use the database | merge into yours (those entries only) |
-| `src/commerce-backend-ui-2/ext.config.yaml` | `main` | Extension config (Admin UI SDK version 2); adds the `list-deliveries` and `retry-delivery` web actions next to the Ep 9 ones | merge into yours (add the two actions) |
-| `src/commerce-backend-ui-2/actions/list-deliveries/index.js` | `main` | Returns recent deliveries and failures from `export_runs` for the admin page | add |
-| `src/commerce-backend-ui-2/actions/retry-delivery/index.js` | `main` | The Retry button's action: for a `dead` row, fetches the order again from Commerce and resends it | add |
-| `src/commerce-backend-ui-2/web-src/src/pages/main-page.tsx` | `main` | The Ep 9 page (React Spectrum 2, loaded by `createExtensionApp`), now with the Stuck orders and Deliveries tabs | merge into yours (add the tab) |
-| `src/commerce-backend-ui-2/web-src/src/components/Deliveries.tsx` | `main` | The Deliveries tab: a table with a Retry button | add |
+| `src/commerce-backend-ui-2/ext.config.yaml` | `ep9-admin-ui-sdk-v2` | Extension config (Admin UI SDK version 2); adds the `list-deliveries` and `retry-delivery` web actions next to the Ep 9 ones | merge into yours (add the two actions) |
+| `src/commerce-backend-ui-2/actions/list-deliveries/index.js` | `ep9-admin-ui-sdk-v2` | Returns recent deliveries and failures from `export_runs` for the admin page | add |
+| `src/commerce-backend-ui-2/actions/retry-delivery/index.js` | `ep9-admin-ui-sdk-v2` | The Retry button's action: for a `dead` row, fetches the order again from Commerce and resends it | add |
+| `src/commerce-backend-ui-2/web-src/src/pages/main-page.tsx` | `ep9-admin-ui-sdk-v2` | The Ep 9 page (React Spectrum 2, loaded by `createExtensionApp`), now with the Stuck orders and Deliveries tabs | merge into yours (add the tab) |
+| `src/commerce-backend-ui-2/web-src/src/components/Deliveries.tsx` | `ep9-admin-ui-sdk-v2` | The Deliveries tab: a table with a Retry button | add |
 | `commerce/OrderExport` | `ep10-port-a-module` | The stand-in PHP module (observer, retry cron, retry table, config) that the run ported. Comparison aid only | read only |
 | `scripts/compare-erp.js` | `ep10-port-a-module` | Prints what the app and the module each sent to the fake ERP, per order. Only for the side-by-side run | read only (optional) |
 | `actions/fake-erp/index.js` | `ep10-port-a-module` | A fake ERP as a public web action, so the side-by-side run has something to send to. Test helper | read only (optional, never deploy to Production) |
 
-Later-fix decisions: `list-deliveries/index.js`, `retry-delivery/index.js` and `ext.config.yaml` at `main` carry the Ep 9 `client_id` allowlist (`checkClient` at the top of `main`, an `ALLOWED_CLIENT_IDS` input). The Ep 9 hand-off always installs that allowlist, so take these files from `main`. Never remove the check to make a test pass: `retry-delivery` resends orders to the external API, and without the allowlist only `require-adobe-auth` guards it.
+Later-fix decisions: `list-deliveries/index.js`, `retry-delivery/index.js` and `ext.config.yaml` at `ep9-admin-ui-sdk-v2` carry the Ep 9 `client_id` allowlist (`checkClient` at the top of `main`, an `ALLOWED_CLIENT_IDS` input). The Ep 9 hand-off always installs that allowlist, so take these files from that tag. Never remove the check to make a test pass: `retry-delivery` resends orders to the external API, and without the allowlist only `require-adobe-auth` guards it.
 
 ## Config
 - `app.config.yaml` (from the tag):
