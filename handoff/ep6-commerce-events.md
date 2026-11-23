@@ -111,7 +111,7 @@ No row needs a later ref: `git log` shows no change after the tag to the Ep 6 fi
 - Files present at this tag that belong to other episodes. Do not copy them:
   - `actions/cart-check/index.js`, `commerce/webhooks.xml`: webhooks (Ep 7).
   - `mesh/mesh.json`, `mesh/reviews-schema.json`: API Mesh (Ep 8).
-  - `src/commerce-backend-ui-1/`: the Admin UI page and its actions (Ep 9), including `list-deliveries` and `retry-delivery` (Ep 10).
+  - `src/commerce-backend-ui-1/`: the Admin UI page and its actions (Ep 9), including `list-deliveries` and `retry-delivery` (Ep 10). This is the version 1 layout at this tag; on `main` the page is `src/commerce-backend-ui-2/` (Admin UI SDK version 2).
   - `actions/export-order/index.js`, `actions/export-order-retry/index.js`, `actions/order-sync/mapper.js`, `actions/order-sync/store.js`, `actions/order-sync/sync.js`: the full order sync with retry and dead rows (Ep 10, building on Ep 1 and 3). This episode's handler is the minimal one.
   - `actions/stuck-orders/index.js`, `actions/sync-log/index.js`: Ep 3 and Ep 4.
   - `actions/fake-erp/index.js`: a test ERP for real-workspace runs. It is public and deploys with every deploy. Not needed here.

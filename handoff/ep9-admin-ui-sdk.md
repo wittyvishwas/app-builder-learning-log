@@ -1,13 +1,14 @@
 # Agent hand-off: App Builder Ep 9, a page in the Commerce admin (Admin UI SDK)
 
-Give this file to your coding agent (Claude Code or similar) inside your own App Builder project. It builds what Ep 9 built, in your project. Post: <https://mageminion.com/app-builder-ep9-admin-ui-sdk/>. Code: tag `ep9-admin-ui-sdk` in https://github.com/wittyvishwas/app-builder-learning-log. Two Ep 9 fixes landed after that tag; the Files table pins those files to `ep11-local-testing`.
+Give this file to your coding agent (Claude Code or similar) inside your own App Builder project. It builds what Ep 9 built, in your project. Post: <https://mageminion.com/app-builder-ep9-admin-ui-sdk/>. Code: https://github.com/wittyvishwas/app-builder-learning-log. This hand-off is for Admin UI SDK **version 2** (`commerce/backend-ui/2`, App Management), which is on `main`. The version 1 code the first post was written against is at the tag `ep9-admin-ui-sdk` (`src/commerce-backend-ui-1/`, a `registration` action); it is not described here.
 
 ## Before you start
 - This builds on Ep 1 (project layout), Ep 3 (the stuck-order job), and Ep 4 (Database Storage: the project has a database, a post-deploy index hook and IMS credentials for `aio-lib-db`).
-- The project needs a web UI. If it was started actions-only, run `aio app add web-assets`.
-- The human must have: Adobe Developer Console access, `aio login` done, and a non-Production workspace selected (check with `aio where`).
-- The human must have an Adobe Commerce with the Admin UI SDK module installed (Adobe's installation guide for the edition) and admin access to configure it.
-- The Commerce admin must use Adobe IMS sign-in, in the same IMS org as the App Builder project. Without it the extension list stays empty. Adobe requires it: <https://developer.adobe.com/commerce/extensibility/admin-ui-sdk/installation/>. It applies to every admin user, so the human should try it on a local copy first: <https://experienceleague.adobe.com/en/docs/commerce-admin/start/admin/ims/adobe-ims-config>.
+- The human must have: Adobe Developer Console access, `aio login` done, and a non-Production workspace selected (check with `aio where`). The workspace must include the I/O Management API.
+- Node 22 or later (`@adobe/aio-commerce-lib-app` and `@adobe/aio-commerce-lib-admin-ui` declare `engines.node >=22`).
+- The human must have a **hosted** Adobe Commerce: Adobe Commerce as a Cloud Service, or Adobe Commerce 2.4.8 or later (cloud or on-premises), with Admin UI SDK 4.2.0 or later and App Management available in the admin. Adobe: "App Management is **not supported** for **local** Adobe Commerce installations at this time." (<https://github.com/AdobeDocs/commerce-extensibility/blob/main/src/pages/app-management/index.md>). On a local Commerce the agent can build, test and deploy, but the page cannot be associated or opened. Say so to the human before starting.
+- The Commerce admin must use Adobe IMS sign-in, in the same IMS org as the App Builder project: <https://developer.adobe.com/commerce/extensibility/admin-ui-sdk/installation/>. It applies to every admin user.
+- The admin who associates the app needs the App Management resource under Admin UI SDK in User Roles.
 - Agent: stop and ask the human for anything in this list you can't confirm.
 
 ## Rules for the agent
@@ -15,8 +16,10 @@ Give this file to your coding agent (Claude Code or similar) inside your own App
 - Before any `aio app deploy`, `aio app use` or onboarding script, run `aio where` and show the human the workspace. Continue only on their yes.
 - Never write secret values to files under git. `.env` and `.aio` stay out of git.
 - Build only what this file lists. Keep the reader's existing names and code style; rename the episode's names (listed below) to fit.
-- This is Admin UI SDK version 1 (`commerce/backend-ui/1`). Adobe has deprecated it in favour of version 2 (`commerce/backend-ui/2`). The two are not compatible: pick one per app. Build version 1 here, as the post does. Do not mix in version 2 code.
+- This is Admin UI SDK version 2. Versions 1 and 2 are not compatible: pick one per app, and do not mix in version 1 code (no `registration` action, no `commerce/backend-ui/1`).
+- Do not hand-write the files under `.generated/`. Run `npx aio-commerce-lib-app generate all` and commit what it writes.
 - Never rely on the page being hidden. Every action the page calls stays locked down (see Config).
+- The generated `app-management/*` actions are web actions gated only by `require-adobe-auth` (the installation action takes the app's client secret). After the human has associated and tested the app in a test workspace, offer to undeploy them (`aio rt action delete app-management/<name>`). Do not leave them in a shared workspace.
 
 ## Get the reference code
 ```bash
@@ -30,77 +33,82 @@ Ep 9 is the stuck-orders page only. The `list-deliveries` and `retry-delivery` a
 
 | Path | Ref | What it is | Do |
 |---|---|---|---|
-| `app.config.yaml` | `ep9-admin-ui-sdk` | Root config: the `extensions` entry that includes the extension config, and `include-ims-credentials: true` on the `ops/stuck-orders` action | merge into yours (only those two parts) |
+| `app.config.yaml` | `main` | Root config: the `extensions` entries (`commerce/backend-ui/2`, then `commerce/extensibility/1`, in that order), and `include-ims-credentials: true` on the `ops/stuck-orders` action | merge into yours (only those parts; `main` carries other episodes' actions) |
 | `actions/stuck-orders/index.js` | `ep9-admin-ui-sdk` | The Ep 3 job, extended: each alert it sends is also upserted into the `stuck_alerts` collection | merge into yours |
-| `package.json` | `ep9-admin-ui-sdk` | Dependencies. Ep 9 added these devDependencies for the web page: `@adobe/exc-app`, `@adobe/react-spectrum`, `@adobe/uix-guest`, `core-js`, `react`, `react-dom`, `react-error-boundary`, `react-router-dom`, `regenerator-runtime`. Without them `aio app build` fails | read only: add those devDependencies to yours, keep your own versions of the rest |
+| `package.json` | `main` | Dependencies and scripts for v2: `@adobe/aio-commerce-lib-app`, `@adobe/aio-commerce-lib-admin-ui`, `@adobe/aio-commerce-sdk`, `@react-spectrum/s2`, `react` and `react-dom` 19, the TypeScript and Babel devDependencies, the `postinstall` script, the `imports` map (`#app.commerce.config`, `#web/*`) and the two parcel keys (without them the S2 CSS does not bundle). Compare with Adobe's sample `package.json` | read only: add those to yours, keep your own versions of the rest |
 | `scripts/post-deploy-db-setup.js` | `ep9-admin-ui-sdk` | The Ep 4 post-deploy hook. Ep 9 adds the `stuck_alerts` indexes: `order_1` (unique) and `handled_1_at_-1` | merge into yours (only the `stuck_alerts` entry in `INDEXES`) |
-| `src/commerce-backend-ui-1/ext.config.yaml` | `ep11-local-testing` | Extension config: the web UI, the `registration` action, and the `list-alerts` and `mark-handled` actions. Later ref: it carries the `ALLOWED_CLIENT_IDS` input (the client_id allowlist, added after Ep 10, part of Ep 9). Leave out the `list-deliveries` and `retry-delivery` action blocks in that file: they are Ep 10 | add (without the two Ep 10 blocks) |
-| `src/commerce-backend-ui-1/actions/registration/index.js` | `ep9-admin-ui-sdk` | Registers the "Stuck orders" menu item with the Admin UI SDK | add |
-| `src/commerce-backend-ui-1/actions/list-alerts/index.js` | `ep11-local-testing` | Returns the open alerts from `stuck_alerts`, newest first. Later ref: it calls the allowlist check first. No Ep 10 code in it | add |
-| `src/commerce-backend-ui-1/actions/mark-handled/index.js` | `ep11-local-testing` | Sets `handled: true` on one alert. Later ref: it calls the allowlist check first. No Ep 10 code in it | add |
-| `src/commerce-backend-ui-1/actions/allowed-client.js` | `ep11-local-testing` | Second gate: checks the token's `client_id` against `ALLOWED_CLIENT_IDS`. Only exists at the later ref | add |
-| `src/commerce-backend-ui-1/web-src/index.html` | `ep9-admin-ui-sdk` | Page shell | add |
-| `src/commerce-backend-ui-1/web-src/src/index.js` | `ep9-admin-ui-sdk` | React entry | add |
-| `src/commerce-backend-ui-1/web-src/src/exc-runtime.js` | `ep9-admin-ui-sdk` | Runtime bootstrap, copied from Adobe's sample | add |
-| `src/commerce-backend-ui-1/web-src/src/index.css` | `ep9-admin-ui-sdk` | Page styles | add |
-| `src/commerce-backend-ui-1/web-src/src/components/App.js` | `ep9-admin-ui-sdk` | Error boundary, hash router and React Spectrum provider | add |
-| `src/commerce-backend-ui-1/web-src/src/components/Constants.js` | `ep9-admin-ui-sdk` | The extension id, `StuckOrders`, which must match the registration's ids | add |
-| `src/commerce-backend-ui-1/web-src/src/components/ExtensionRegistration.js` | `ep9-admin-ui-sdk` | Registers the menu with the SDK | add |
-| `src/commerce-backend-ui-1/web-src/src/components/MainPage.js` | `ep9-admin-ui-sdk` | Page frame: reads the IMS token and org from the admin, shows the alerts. Keep this tag: later versions add the Ep 10 Deliveries tab | add |
-| `src/commerce-backend-ui-1/web-src/src/components/StuckAlerts.js` | `ep9-admin-ui-sdk` | The React Spectrum table of alerts with a Mark handled button | add |
-| `src/commerce-backend-ui-1/web-src/src/utils.js` | `ep11-local-testing` | `callAction`: posts to an action with the IMS token. Later ref: it reads the answer as text first, so a non-JSON error page (a 502 from the gateway) shows the HTTP status, not "Unexpected token '<'" | add |
+| `app.commerce.config.ts` | `main` | The App Management config: `metadata` (`id`, `displayName`, `description`, `version`) and one `adminUi.menu` entry (`id` `StuckOrders::stuck`, `label`, `description`, `pageTitle`). No `parentMenu`, so the menu sits under Apps. No `aclProtected` | add (rename) |
+| `install.yaml` | `main` | The two extension points, `commerce/backend-ui/2` and `commerce/extensibility/1` | add |
+| `tsconfig.json` | `main` | TypeScript config for `app.commerce.config.ts`, from Adobe's sample | add |
+| `webpack-config.cjs` | `main` | `ts-loader` for the TypeScript config, from Adobe's sample | add |
+| `src/commerce-backend-ui-2/ext.config.yaml` | `main` | Extension config: `web: web-src`, the generated hooks, `operations.view`, and the `list-alerts` and `mark-handled` actions. It carries the `ALLOWED_CLIENT_IDS` input (the client_id allowlist, part of Ep 9). Leave out the `list-deliveries` and `retry-delivery` action blocks: they are Ep 10 | add (without the two Ep 10 blocks) |
+| `src/commerce-backend-ui-2/actions/list-alerts/index.js` | `main` | Returns the open alerts from `stuck_alerts`, newest first. It calls the allowlist check first | add |
+| `src/commerce-backend-ui-2/actions/mark-handled/index.js` | `main` | Sets `handled: true` on one alert. It calls the allowlist check first | add |
+| `src/commerce-backend-ui-2/actions/allowed-client.js` | `main` | Second gate: checks the token's `client_id` against `ALLOWED_CLIENT_IDS` | add |
+| `src/commerce-extensibility-1/ext.config.yaml` | `main` | The App Management extension: hooks and the generated `app-management` package (`app-config`, `association`, `installation`) | read only: run `npx aio-commerce-lib-app generate all`, which writes it and `.generated/` |
+| `src/commerce-extensibility-1/.generated/app.commerce.manifest.json` | `main` | What `generate all` made from the config; Commerce reads it through the `app-config` action | read only: compare with your own output |
+| `src/commerce-backend-ui-2/web-src/index.html` | `main` | Page shell: loads `src/app.tsx` | add |
+| `src/commerce-backend-ui-2/web-src/index.css` | `main` | Page styles, from the sample | add |
+| `src/commerce-backend-ui-2/web-src/src/app.tsx` | `main` | The entry: `createExtensionApp` from `@adobe/aio-commerce-lib-admin-ui/web` with the menu page and `metadata.extensionId` from the app config. There is no `ExtensionRegistration` component | add |
+| `src/commerce-backend-ui-2/web-src/src/pages/main-page.tsx` | `main` | The page: reads the IMS token and org with `useIms()` and shows the alerts in a React Spectrum 2 table with a Mark handled button, calling the actions with `Authorization: Bearer` and `x-gw-ims-org-id`. Keep Ep 10's Deliveries tab out | add (rename) |
 
-Later-fix decisions: the hook and `package.json` stay at the Ep 9 tag (later versions carry other episodes' changes). `registration/index.js`, `StuckAlerts.js`, `stuck-orders/index.js` and the other web-src files have no later change. `MainPage.js` and `app.config.yaml` have later changes that belong to other episodes, so they stay at the Ep 9 tag.
+The page's table component and its `callAction` helper sit next to these under `web-src/src/`; take their file names from the `main` tree. Tests to add from `test/`, all at `main`: `ext-config.test.js` (the four actions' entries and the two extension points), `commerce-app-config.test.js` (the menu validates against the generated manifest; a menu without `description` fails), `list-alerts.test.js`, `mark-handled.test.js`, `allowed-client.test.js`, `stuck-orders.test.js`, `helpers.js` (the fake database, `tokenFor`, `authed`), and `test/web/` with `jest.config.js` (the page under jest in jsdom: a `web` project with inline Babel presets and a mock for `@adobe/aio-commerce-lib-admin-ui/web`). Add the `stuck_alerts` cases from `test/db-setup.test.js` at `ep9-admin-ui-sdk`: the index names `order_1` and `handled_1_at_-1` with `order_1` unique, and the test that the unique index rejects a second alert for the same order. Leave the other collections' cases out.
 
 ## Config
-- `app.config.yaml` entry (the extension point; version 1):
+- `app.config.yaml` entries (the extension points; version 2). Keep this order, with `commerce/extensibility/1` last:
 ```yaml
 extensions:
-  commerce/backend-ui/1:
-    $include: src/commerce-backend-ui-1/ext.config.yaml
+  commerce/backend-ui/2:
+    $include: src/commerce-backend-ui-2/ext.config.yaml
+  commerce/extensibility/1:
+    $include: src/commerce-extensibility-1/ext.config.yaml
 ```
 - Also in `app.config.yaml`: the `ops/stuck-orders` action needs `include-ims-credentials: true`, because it now writes to the database.
-- `src/commerce-backend-ui-1/ext.config.yaml`: every action the page calls is a web action (`web: 'yes'`) with `require-adobe-auth: true` and `final: true`. The two data actions (`list-alerts`, `mark-handled`) also get `include-ims-credentials: true` and an `ALLOWED_CLIENT_IDS: $ALLOWED_CLIENT_IDS` input. Copy the structure from the file at the pinned ref.
-- Lock-down, as the post describes: `require-adobe-auth: true` rejects calls without a valid token. Version 1 has no per-action permissions, so each data action also checks the token's `client_id` against the allowlist and refuses anything else. The token can belong to an integration, not a person: do not treat it as the admin user's identity.
+- There is no registration action. Commerce reads the menu from the generated `app-management/app-config` action. `npx aio-commerce-lib-app generate all` writes `src/commerce-extensibility-1/.generated/`; `aio app build` runs the same step through the `pre-app-build` hooks, and `npm install` runs the `postinstall` hook. After `npm ci` in a clean clone, `git status` should be empty.
+- `src/commerce-backend-ui-2/ext.config.yaml`: every action the page calls is a web action (`web: 'yes'`) with `require-adobe-auth: true` and `final: true`. The two data actions (`list-alerts`, `mark-handled`) also get `include-ims-credentials: true` and an `ALLOWED_CLIENT_IDS: $ALLOWED_CLIENT_IDS` input. Copy the structure from the file at `main`. The generated App Management actions run on `nodejs:24`; the episode's data actions are pinned to `nodejs:20`.
+- Lock-down, as the post describes: `require-adobe-auth: true` rejects calls without a valid token. The actions have no per-action permissions, so each data action also checks the token's `client_id` against the allowlist and refuses anything else. The token can belong to an integration, not a person: do not treat it as the admin user's identity.
+- `aclProtected` (not used here): `adminUi.menu.aclProtected: true` gates the menu item behind its own Commerce ACL resource, per admin role. It needs the app to be associated with a Commerce instance, and an action can ask Commerce with `POST /V1/adminuisdk/permission/check` (body `{ "resource": "<ACL resource id>" }`). Leave it off unless the human asks.
 - `.env` keys (names only; the human provides the values):
-  - `ALLOWED_CLIENT_IDS`: comma-separated IMS client ids allowed to call the data actions. Empty refuses every call. The first refused call logs the caller's client id at warn level (`aio rt activation logs`), so the human can read it there.
+  - `ALLOWED_CLIENT_IDS`: comma-separated IMS client ids allowed to call the data actions. Empty refuses every call. The first refused call logs the caller's client id at warn level (`aio rt activation logs`), so the human can read it there. The v2 page token's `client_id` may differ from version 1's; it has not been observed. Do not guess it.
   - `COMMERCE_BASE_URL`, `COMMERCE_TOKEN`, `ALERT_WEBHOOK_URL`: for the Ep 3 job, as before.
   - `IMS_OAUTH_S2S_CLIENT_ID`, `IMS_OAUTH_S2S_CLIENT_SECRET`, `IMS_OAUTH_S2S_ORG_ID`, `IMS_OAUTH_S2S_SCOPES`: for the Ep 4 post-deploy hook, as before.
 - `scripts/post-deploy-db-setup.js`: add the `stuck_alerts` indexes to the hook's `INDEXES` (`order_1` unique, `handled_1_at_-1`). The Ep 4 hand-off leaves them out because they are Ep 9's. The hook creates them on the next deploy.
-- `src/commerce-backend-ui-1/web-src/src/config.json` is generated by `aio app build` or `aio app dev`. Keep it out of git.
-- Human steps in the Commerce admin. The agent stops and asks the human to do these:
-  1. Open Stores > Settings > Configuration > Adobe Services > Admin UI SDK and set Enable Admin UI SDK to Yes (off by default). Adobe's configuration guide: <https://developer.adobe.com/commerce/extensibility/admin-ui-sdk/configuration/>.
-  2. Under Configure eligible extensions, pick the workspace, then select the app. A `--no-publish` deploy is listed as Draft for a Stage workspace. Save.
-  3. Optional: turn on Database logging and read System > Admin UI SDK > Admin UI SDK Logs.
-  4. After each deploy, click Refresh selected extensions and reload the admin.
-- PaaS only, optional: Enable local testing and Local Server Base URL in the same section load the registration from the human's machine. Adobe's configuration guide has the small HTTPS server. Turn `require-adobe-auth` off on the registration action only while testing locally, and back on before any shared deploy. Keep local testing off on Commerce as a Cloud Service.
+- `src/commerce-backend-ui-2/web-src/src/config.json` is generated by `aio app build`. Keep it out of git.
+- Human steps in the Commerce admin (hosted Commerce only). The agent stops and asks the human to do these:
+  1. Give the admin who associates the app the App Management resource under Admin UI SDK, and the admins who open the page the Admin App Permissions resource.
+  2. Open Apps > App Management, associate the deployed app (pick the workspace) and install it. A `--no-publish` deploy is a draft for a Stage workspace.
+  3. Reload the admin. Stuck orders appears under Apps.
+  Adobe's steps: <https://github.com/AdobeDocs/commerce-extensibility/blob/main/src/pages/app-management/index.md>.
+- There is no local testing path into a v2 admin: Commerce loads the page from the deployed App Registry URL, and `useIms()` returns an error outside a host.
 
 ## Tests
-- Add from `test/`: `registration.test.js` and `stuck-orders.test.js` at `ep9-admin-ui-sdk`; `list-alerts.test.js`, `mark-handled.test.js`, `allowed-client.test.js` and `web-utils.test.js` at `ep11-local-testing` (allowlist and non-JSON fixes).
-- Add the `stuck_alerts` cases from `test/db-setup.test.js` at `ep9-admin-ui-sdk` into your copy: the expected index names `order_1` and `handled_1_at_-1` with `order_1` unique, and the test that the unique index rejects a second alert for the same order. Leave the other collections' cases out.
-- Add `test/helpers.js` from `ep11-local-testing`. It has the fake database (`fakeDb`) and, for the allowlist tests, `tokenFor` and `authed`.
-- `test/registration.test.js` reads `ext.config.yaml` and `app.config.yaml` by their repo paths and expects the menu ids `StuckOrders::stuck` and `StuckOrders::apps`. If your paths or names differ, change the test, not the check.
-- Run `npm test`.
+- Run `npm test`. It covers the actions (database faked), the config files and the page's logic under jest. It does not open the page in a Commerce admin.
+- `npx aio-commerce-lib-app generate all` should leave `git status` clean when the config has not changed. A bad menu (`id` with a hyphen, a missing `description`) fails there with a schema error that names the field.
+- Lock file: if `~/.npmrc` sets `legacy-peer-deps=true`, regenerate with `NPM_CONFIG_USERCONFIG=/dev/null npx -y npm@11 install --legacy-peer-deps=false`, or peer dependencies drop out of the lock.
 
 ## Check it works
-1. Local first (no deploy). `npm test`. Then, optional, Adobe's own sample before your code, to rule out configuration problems: <https://github.com/adobe/adobe-commerce-samples/tree/main/admin-ui-sdk>, folder `admin-ui-sdk/v1/menu/custom-menu`. With the extension running under `aio app dev -e commerce/backend-ui/1`, an Apps menu with the first app should appear when selected under Configure eligible extensions. If it doesn't, read the SDK logs first. (Ep 11 ran the menu read from `aio app dev` through local testing; it did not open the page.)
-2. Then deployed to the non-Production workspace, after the human says yes (after `aio where` is shown): `aio app deploy`. The human clicks Refresh selected extensions and reloads the admin. Expect Stuck orders in the Apps menu, listing open alerts newest first. In the post's admin, clicking Apps in the sidebar opened the Commerce Resource Center widget first; the extension's page was in the Apps menu.
-3. Lock-down checks on the deployed `list-alerts` action: no token, a made-up token, or a valid token without the org header must answer 401. A valid token whose `client_id` is not in `ALLOWED_CLIENT_IDS` must answer 403. The page's own calls (admin token, client on the allowlist) answer 200.
-4. Press Mark handled on a test alert. The alert gets `handled: true`. Ship read-only first: add the button only after you have tested who can press it.
-- Proven in the post: unit tests; deploy to a Stage workspace; the page in a local Commerce admin with IMS sign-in; two test alerts newest first; Mark handled wrote `handled: true`. Not proven: Adobe's sample, `aio app dev` local testing for the page, a server-to-server token, version 2. Once the re-list after Mark handled still showed the row until a reload.
+1. Local first (no deploy). `npm test`, then `npx aio-commerce-lib-app generate all` and `aio app build`. Optionally, Adobe's own sample before your code, to rule out configuration problems: <https://github.com/adobe/adobe-commerce-samples/tree/main/admin-ui-sdk/v2/menu/custom-menu>.
+2. Then deployed to the non-Production workspace, after the human says yes (after `aio where` is shown): `aio app deploy --no-publish`. `aio rt action list` should show the `app-management` actions and the four `StuckOrders` actions, and no `admin-ui-sdk/registration`.
+3. On a hosted Commerce, after association: Stuck orders in the Apps menu, listing open alerts newest first.
+4. Lock-down checks on the deployed `list-alerts` action: no token, a made-up token, or a valid token without the org header must answer 401. A valid token whose `client_id` is not in `ALLOWED_CLIENT_IDS` must answer 403. The page's own calls (admin token, client on the allowlist) answer 200.
+5. Press Mark handled on a test alert. The alert gets `handled: true`. Ship read-only first: add the button only after you have tested who can press it.
+6. When done testing, offer to undeploy the `app-management/*` actions from the test workspace.
+- Not proven for version 2: the page in a real admin; the page token's `client_id` against the allowlist; the page-to-action header pair; `aclProtected`. Version 1 (tag `ep9-admin-ui-sdk`) was proven on Stage with a local Commerce admin.
 
 ## Names to rename
 | In the reference | Why it may differ in yours |
 |---|---|
-| `Stuck orders` (menu and page title) | Your menu label |
+| `Stuck orders` (menu label and page title) | Your menu label |
+| `stuck-orders` (`metadata.id`), `StuckOrders::stuck` (menu id) | `metadata.id`: letters, digits and hyphens only. Menu id: letters, digits, `/`, `:`, `_` |
 | `stuck_alerts` (collection) | Your collection name, if you already have one |
-| `StuckOrders` (action package), `admin-ui-sdk` (package) | Your package names |
+| `StuckOrders` (action package) | Your package name |
 | `ops/stuck-orders` | Your Ep 3 job's package and action name |
-| `commerce/backend-ui/1` and `src/commerce-backend-ui-1` | Only if your extension layout differs |
+| `commerce/backend-ui/2` and `src/commerce-backend-ui-2` | Only if your extension layout differs |
 
 ## Not in this episode
-- `list-deliveries`, `retry-delivery`, the Deliveries tab (`Deliveries.js`) and the retry button: Ep 10.
+- `list-deliveries`, `retry-delivery`, the Deliveries tab and the retry button: Ep 10.
 - `actions/export-order`, `actions/export-order-retry`, `actions/order-sync/`, `actions/sync-log`: Ep 4 and Ep 10.
 - `actions/order-placed`: Ep 6. `actions/cart-check` and `commerce/webhooks.xml`: Ep 7. `mesh/`: Ep 8.
 - `actions/ep11-probe`, `dev/run-ep11/`: Ep 11.
-- Admin UI SDK version 2 (`commerce/backend-ui/2`, `app.commerce.config.ts`, ACL with `aclProtected`): not built here.
+- Version 1 (`commerce/backend-ui/1`, the `registration` action): tag `ep9-admin-ui-sdk`.
+- Grid columns, mass actions, order-view buttons and custom ACL resources (`adminUi.acl`): not built here.

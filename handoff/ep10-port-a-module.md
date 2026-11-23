@@ -25,7 +25,7 @@ git -C /tmp/abl fetch --tags
 ```
 
 ## Files
-Most rows are at the Ep 10 tag. The order-sync fixes (the `findOne` no-match fix and the sent-row fix) are already in that tag. The two admin actions, `ext.config.yaml` and their tests are at `ep11-local-testing`, because the Ep 9 hand-off installs the `client_id` allowlist (see the note under this table).
+Most rows are at the Ep 10 tag. The order-sync fixes (the `findOne` no-match fix and the sent-row fix) are already in that tag. The Admin UI rows (the page, the two admin actions and `ext.config.yaml`) are at `main`, because the Ep 9 hand-off now builds the page on Admin UI SDK version 2 (`src/commerce-backend-ui-2/`), and the `client_id` allowlist is part of those files (see the note under this table). The version 1 files are at the tag `ep10-port-a-module` (and `ep11-local-testing`) under `src/commerce-backend-ui-1/`; this hand-off no longer uses them.
 
 | Path | Ref | What it is | Do |
 |---|---|---|---|
@@ -38,23 +38,22 @@ Most rows are at the Ep 10 tag. The order-sync fixes (the `findOne` no-match fix
 | `actions/utils.js` | `ep10-port-a-module` | Input check and error response helpers used by the actions | merge into yours |
 | `scripts/post-deploy-db-setup.js` | `ep10-port-a-module` | The post-deploy hook that creates the database indexes, including the ones `export_runs` needs | merge only the `export_runs` index entries; the `order_claims` (Ep 6) and `stuck_alerts` (Ep 9) entries come from those hand-offs |
 | `app.config.yaml` | `ep10-port-a-module` | Root config: `export-order` and `export-order-retry` (the 10-minute alarm trigger and rule), the post-deploy hook, `include-ims-credentials: true` on the actions that use the database | merge into yours (those entries only) |
-| `src/commerce-backend-ui-1/ext.config.yaml` | `ep11-local-testing` | Extension config; adds the `list-deliveries` and `retry-delivery` web actions next to the Ep 9 ones | merge into yours (add the two actions) |
-| `src/commerce-backend-ui-1/actions/list-deliveries/index.js` | `ep11-local-testing` | Returns recent deliveries and failures from `export_runs` for the admin page | add |
-| `src/commerce-backend-ui-1/actions/retry-delivery/index.js` | `ep11-local-testing` | The Retry button's action: for a `dead` row, fetches the order again from Commerce and resends it | add |
-| `src/commerce-backend-ui-1/web-src/src/components/Deliveries.js` | `ep10-port-a-module` | The Deliveries tab: a table with a Retry button | add |
-| `src/commerce-backend-ui-1/web-src/src/components/MainPage.js` | `ep10-port-a-module` | The Ep 9 page frame, now with the Stuck orders and Deliveries tabs | merge into yours (add the tab) |
+| `src/commerce-backend-ui-2/ext.config.yaml` | `main` | Extension config (Admin UI SDK version 2); adds the `list-deliveries` and `retry-delivery` web actions next to the Ep 9 ones | merge into yours (add the two actions) |
+| `src/commerce-backend-ui-2/actions/list-deliveries/index.js` | `main` | Returns recent deliveries and failures from `export_runs` for the admin page | add |
+| `src/commerce-backend-ui-2/actions/retry-delivery/index.js` | `main` | The Retry button's action: for a `dead` row, fetches the order again from Commerce and resends it | add |
+| `src/commerce-backend-ui-2/web-src/src/pages/main-page.tsx` | `main` | The Ep 9 page (React Spectrum 2, loaded by `createExtensionApp`), now with the Stuck orders and Deliveries tabs. The Deliveries tab is a table with a Retry button; its component file sits next to the page under `web-src/src/`, take its name from the `main` tree | merge into yours (add the tab) |
 | `commerce/OrderExport` | `ep10-port-a-module` | The stand-in PHP module (observer, retry cron, retry table, config) that the run ported. Comparison aid only | read only |
 | `scripts/compare-erp.js` | `ep10-port-a-module` | Prints what the app and the module each sent to the fake ERP, per order. Only for the side-by-side run | read only (optional) |
 | `actions/fake-erp/index.js` | `ep10-port-a-module` | A fake ERP as a public web action, so the side-by-side run has something to send to. Test helper | read only (optional, never deploy to Production) |
 
-Later-fix decisions: between the two tags, `ep11-local-testing` changes `list-deliveries/index.js`, `retry-delivery/index.js`, `ext.config.yaml` and their tests only to add the Ep 9 `client_id` allowlist (`checkClient` at the top of `main`, an `ALLOWED_CLIENT_IDS` input). The Ep 9 hand-off always installs that allowlist, so take these files from the later ref. Never remove the check to make a test pass: `retry-delivery` resends orders to the external API, and without the allowlist only `require-adobe-auth` guards it.
+Later-fix decisions: `list-deliveries/index.js`, `retry-delivery/index.js` and `ext.config.yaml` at `main` carry the Ep 9 `client_id` allowlist (`checkClient` at the top of `main`, an `ALLOWED_CLIENT_IDS` input). The Ep 9 hand-off always installs that allowlist, so take these files from `main`. Never remove the check to make a test pass: `retry-delivery` resends orders to the external API, and without the allowlist only `require-adobe-auth` guards it.
 
 ## Config
 - `app.config.yaml` (from the tag):
   - `export-order`: `web: 'no'`, inputs `ERP_API_URL` and `ERP_API_KEY`, `include-ims-credentials: true`, `final: true`.
   - `export-order-retry`: same inputs, a 300000 ms timeout (below the 10-minute alarm period), a trigger with cron `*/10 * * * *` and a rule that runs it.
   - Register the event with only one consumer. The Ep 6 `order-placed` action and `export-order` both handle `sales_order_place_after`: `export-order` is the full version, so register only it.
-- `src/commerce-backend-ui-1/ext.config.yaml`: `list-deliveries` and `retry-delivery` are web actions with `require-adobe-auth: true`, `include-ims-credentials: true` and `final: true`. `retry-delivery` also takes `COMMERCE_BASE_URL` and `COMMERCE_TOKEN`, because a dead row keeps no order and Retry fetches it again from Commerce.
+- `src/commerce-backend-ui-2/ext.config.yaml`: `list-deliveries` and `retry-delivery` are web actions with `require-adobe-auth: true`, `include-ims-credentials: true` and `final: true`. `retry-delivery` also takes `COMMERCE_BASE_URL` and `COMMERCE_TOKEN`, because a dead row keeps no order and Retry fetches it again from Commerce.
 - `.env` keys (names only; the human provides the values):
   - `ERP_API_URL`, `ERP_API_KEY`: the external API's base URL and key (a sandbox).
   - `COMMERCE_BASE_URL`, `COMMERCE_TOKEN`: for `retry-delivery`, as in Ep 3.
