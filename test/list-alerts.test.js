@@ -13,7 +13,7 @@ jest.mock('@adobe/aio-sdk', () => ({
 }))
 
 const { fakeDb, authed } = require('./helpers')
-const { main: rawMain } = require('../src/commerce-backend-ui-1/actions/list-alerts')
+const { main: rawMain } = require('../src/commerce-backend-ui-2/actions/list-alerts')
 // Every call comes from the allowed client; the 403 test below calls rawMain with another one.
 const main = p => rawMain({ ...authed(), ...p })
 

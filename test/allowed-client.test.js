@@ -1,7 +1,7 @@
 /*
- * Unit tests for the Admin UI actions' client_id allowlist (src/commerce-backend-ui-1/actions/allowed-client.js).
+ * Unit tests for the Admin UI actions' client_id allowlist (src/commerce-backend-ui-2/actions/allowed-client.js).
  */
-const { checkClient, clientIdOf } = require('../src/commerce-backend-ui-1/actions/allowed-client')
+const { checkClient, clientIdOf } = require('../src/commerce-backend-ui-2/actions/allowed-client')
 const { tokenFor, authed } = require('./helpers')
 
 const withHeader = (authorization, extra = {}) => ({ ALLOWED_CLIENT_IDS: 'client-a', __ow_headers: { authorization }, ...extra })
