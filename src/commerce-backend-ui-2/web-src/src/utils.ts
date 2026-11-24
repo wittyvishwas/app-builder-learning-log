@@ -9,8 +9,8 @@ export type Ims = { imsToken: string; imsOrgId: string };
  * the typecheck and jest have no such file).
  *
  * Headers: `Authorization: Bearer <imsToken>` and `x-gw-ims-org-id: <imsOrgId>`, the pair the V1 page sent
- * (require-adobe-auth checks the token). It matches V1 but is not yet proven inside a V2 Commerce admin,
- * where the token may come from another IMS client (see actions/allowed-client.js).
+ * (require-adobe-auth checks the token). Proven from a hosted V2 Commerce admin: the token passed the same
+ * client_id allowlist the V1 page used (see actions/allowed-client.js).
  */
 function actionUrl(action: string): string {
   const actions = require("./config.json");
