@@ -12,9 +12,6 @@ export type Ims = { imsToken: string; imsOrgId: string };
  * (require-adobe-auth checks the token). It matches V1 but is not yet proven inside a V2 Commerce admin,
  * where the token may come from another IMS client (see actions/allowed-client.js).
  */
-// The bundler (and jest) provide CommonJS require; the web tsconfig loads no Node types.
-declare const require: (id: string) => Record<string, string>;
-
 function actionUrl(action: string): string {
   const actions = require("./config.json");
   const url = actions[action];
